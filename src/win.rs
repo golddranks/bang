@@ -1,33 +1,32 @@
 mod objc;
 
 use objc::{
-    CGPoint, CGRect, CGSize, NSApplicationActivationPolicy, NSApplicationCls, NSBackingStoreType,
-    NSStringCls, NSWindowCls, NSWindowStyleMask,
+    CGPoint, CGRect, CGSize, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType,
+    NSString, NSWindow, NSWindowStyleMask,
 };
 
 pub fn init() {
-    let app_cls = NSApplicationCls::init();
-    let win_cls = NSWindowCls::init();
-    let str_cls = NSStringCls::init();
+    NSApplication::init();
+    NSWindow::init();
+    NSString::init();
 
-    let app = app_cls.shared_app();
+    let app = NSApplication::shared_app();
     app.set_activation_policy(NSApplicationActivationPolicy::Regular);
 
     let rect = CGRect {
-        origin: CGPoint { x: 0.0, y: 0.0 },
+        origin: CGPoint { x: 200.0, y: 200.0 },
         size: CGSize {
             width: 800.0,
             height: 600.0,
         },
     };
-
     let style_mask = NSWindowStyleMask::TITLED
         | NSWindowStyleMask::CLOSABLE
         | NSWindowStyleMask::MINIATURIZABLE
         | NSWindowStyleMask::RESIZABLE;
-    let title = str_cls.new(c"Hello, World!");
+    let title = NSString::new(c"Hello, World!");
 
-    let win = win_cls.alloc_init(&app_cls, rect, style_mask, NSBackingStoreType::Buffered, false);
+    let win = NSWindow::alloc_init(rect, style_mask, NSBackingStoreType::Buffered, false);
     win.set_title(title);
     win.set_visibility(true);
     win.set_main();

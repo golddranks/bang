@@ -1,11 +1,11 @@
 use std::{
     ffi::{CStr, c_char, c_double, c_longlong, c_schar, c_ulonglong, c_void},
     mem::transmute,
-    ops::BitOr,
-    ptr::null,
+    ops::{BitOr, Not},
+    ptr::null_mut,
+    sync::atomic::{AtomicPtr, Ordering},
 };
 
-pub type Sel = *const c_void;
 pub type Ptr = *mut c_void;
 pub type Imp = unsafe extern "C" fn() -> *const c_void;
 pub type CStrPtr = *const c_char;
@@ -16,31 +16,92 @@ pub type CGFloat = c_double;
 
 unsafe extern "C" {
     unsafe fn objc_getClass(name: CStrPtr) -> Ptr;
-    unsafe fn sel_registerName(name: CStrPtr) -> Sel;
+    unsafe fn sel_registerName(name: CStrPtr) -> Ptr;
     unsafe fn objc_msgSend();
-    unsafe fn class_addMethod(cls: Ptr, name: Sel, imp: Imp, types: CStrPtr) -> Bool;
+    unsafe fn class_addMethod(cls: Ptr, name: Ptr, imp: Imp, types: CStrPtr) -> Bool;
 }
 
-pub fn get_class(name: &CStr) -> Ptr {
-    unsafe { objc_getClass(name.as_ptr()) }
+#[repr(transparent)]
+struct Cls(AtomicPtr<c_void>);
+
+impl Cls {
+    const fn uninit() -> Self {
+        Self(AtomicPtr::new(null_mut()))
+    }
+
+    fn get(&self) -> Ptr {
+        let ptr = self.0.load(Ordering::Relaxed);
+        assert!(ptr.is_null().not());
+        ptr
+    }
+
+    fn init(&self, name: &CStr) {
+        let ptr = unsafe { objc_getClass(name.as_ptr()) };
+        self.0.store(ptr, Ordering::Relaxed);
+    }
 }
 
-pub fn sel(name: &CStr) -> Sel {
-    unsafe { sel_registerName(name.as_ptr()) }
+#[repr(transparent)]
+struct Sel(AtomicPtr<c_void>);
+
+impl Sel {
+    const fn uninit() -> Self {
+        Self(AtomicPtr::new(null_mut()))
+    }
+
+    fn get(&self) -> Ptr {
+        let ptr = self.0.load(Ordering::Relaxed);
+        assert!(ptr.is_null().not());
+        ptr
+    }
+
+    fn init(&self, name: &CStr) {
+        let ptr = unsafe { sel_registerName(name.as_ptr()) };
+        self.0.store(ptr, Ordering::Relaxed);
+    }
 }
 
-pub const unsafe fn msg0<R>() -> unsafe extern "C" fn(receiver: Ptr, selector: Sel) -> R {
-    unsafe { transmute(objc_msgSend as unsafe extern "C" fn()) }
+unsafe fn msg0<R>(receiver: Ptr, selector: &Sel) -> R {
+    unsafe {
+        let fn_ptr = transmute::<_, unsafe extern "C" fn(receiver: Ptr, selector: Ptr) -> R>(
+            objc_msgSend as unsafe extern "C" fn(),
+        );
+        fn_ptr(receiver, selector.get())
+    }
 }
 
-pub const unsafe fn msg1<A0, R>()
--> unsafe extern "C" fn(receiver: Ptr, selector: Sel, arg0: A0) -> R {
-    unsafe { transmute(objc_msgSend as unsafe extern "C" fn()) }
+unsafe fn msg1<A0, R>(receiver: Ptr, selector: &Sel, arg0: A0) -> R {
+    unsafe {
+        let fn_ptr = transmute::<
+            _,
+            unsafe extern "C" fn(receiver: Ptr, selector: Ptr, arg0: A0) -> R,
+        >(objc_msgSend as unsafe extern "C" fn());
+        fn_ptr(receiver, selector.get(), arg0)
+    }
 }
 
-pub const unsafe fn msg4<A0, A1, A2, A3, R>()
--> unsafe extern "C" fn(receiver: Ptr, selector: Sel, arg0: A0, arg1: A1, arg2: A2, arg3: A3) -> R {
-    unsafe { transmute(objc_msgSend as unsafe extern "C" fn()) }
+unsafe fn msg4<A0, A1, A2, A3, R>(
+    receiver: Ptr,
+    selector: &Sel,
+    arg0: A0,
+    arg1: A1,
+    arg2: A2,
+    arg3: A3,
+) -> R {
+    unsafe {
+        let fn_ptr = transmute::<
+            _,
+            unsafe extern "C" fn(
+                receiver: Ptr,
+                selector: Ptr,
+                arg0: A0,
+                arg1: A1,
+                arg2: A2,
+                arg3: A3,
+            ) -> R,
+        >(objc_msgSend as unsafe extern "C" fn());
+        fn_ptr(receiver, selector.get(), arg0, arg1, arg2, arg3)
+    }
 }
 
 #[repr(C)]
@@ -61,79 +122,83 @@ pub struct CGRect {
     pub size: CGSize,
 }
 
-pub struct NSStringCls {
-    cls: Ptr,
-    sel: Sel,
-}
+static NS_STRING_CLS: Cls = Cls::uninit();
+static NS_STRING_SEL_NEW: Sel = Sel::uninit();
 
-impl NSStringCls {
-    pub fn init() -> &'static Self {
-        let cls = get_class(c"NSString");
-        let sel = sel(c"stringWithUTF8String:");
-        Box::leak(Box::new(NSStringCls { cls, sel }))
+#[repr(transparent)]
+pub struct NSString(Ptr);
+
+impl NSString {
+    pub fn init() {
+        NS_STRING_CLS.init(c"NSString");
+        NS_STRING_SEL_NEW.init(c"stringWithUTF8String:");
     }
 
-    pub fn new(&'static self, s: &CStr) -> NSString {
-        let obj = unsafe { msg1::<CStrPtr, Ptr>()(self.cls, self.sel, s.as_ptr()) };
-        NSString { obj }
-    }
-}
-
-pub struct NSString {
-    obj: Ptr,
-}
-
-pub struct NSApplicationCls {
-    cls: Ptr,
-    sel_shared_app: Sel,
-    sel_set_activation_policy: Sel,
-    sel_run: Sel,
-}
-
-impl NSApplicationCls {
-    pub fn init() -> &'static Self {
-        let cls = get_class(c"NSApplication");
-        let sel_shared_app = sel(c"sharedApplication");
-        let sel_set_activation_policy = sel(c"setActivationPolicy:");
-        let sel_run = sel(c"run");
-        let default = get_class(c"NSObject");
-        let sel_should_close = sel(c"windowShouldClose:");
-        unsafe {
-            let imp = transmute(window_should_close as fn(Ptr, Sel) -> Bool);
-            class_addMethod(default, sel_should_close, imp, c"v@:".as_ptr());
-        }
-        Box::leak(Box::new(NSApplicationCls {
-            cls,
-            sel_shared_app,
-            sel_set_activation_policy,
-            sel_run,
-        }))
-    }
-
-    pub fn shared_app(&'static self) -> NSApplication {
-        let obj = unsafe { msg0::<Ptr>()(self.cls, self.sel_shared_app) };
-        NSApplication { cls: self, obj }
+    pub fn new(s: &CStr) -> NSString {
+        let obj =
+            unsafe { msg1::<CStrPtr, Ptr>(NS_STRING_CLS.get(), &NS_STRING_SEL_NEW, s.as_ptr()) };
+        NSString(obj)
     }
 }
 
-pub struct NSApplication {
-    cls: &'static NSApplicationCls,
-    obj: Ptr,
-}
+static NS_APPLICATION_CLS: Cls = Cls::uninit();
+static NS_APPLICATION_SEL_SHARED_APP: Sel = Sel::uninit();
+static NS_APPLICATION_SEL_SET_ACTIVATION_POLICY: Sel = Sel::uninit();
+static NS_APPLICATION_SEL_RUN: Sel = Sel::uninit();
+static NS_APPLICATION_SEL_TERMINATE: Sel = Sel::uninit();
+
+static NS_OBJECT_CLS: Cls = Cls::uninit();
+static NS_OBJECT_SEL_WINDOW_SHOULD_CLOSE: Sel = Sel::uninit();
+
+#[repr(transparent)]
+pub struct NSApplication(Ptr);
 
 impl NSApplication {
+    pub fn init() {
+        NS_APPLICATION_CLS.init(c"NSApplication");
+        NS_APPLICATION_SEL_SHARED_APP.init(c"sharedApplication");
+        NS_APPLICATION_SEL_SET_ACTIVATION_POLICY.init(c"setActivationPolicy:");
+        NS_APPLICATION_SEL_RUN.init(c"run");
+        NS_APPLICATION_SEL_TERMINATE.init(c"terminate:");
+        Self::init_should_close();
+    }
+
+    fn init_should_close() {
+        NS_OBJECT_CLS.init(c"NSObject");
+        NS_OBJECT_SEL_WINDOW_SHOULD_CLOSE.init(c"windowShouldClose:");
+
+        unsafe {
+            let imp = transmute(NSWindow::window_should_close as fn(Ptr, Sel) -> Bool);
+            class_addMethod(
+                NS_OBJECT_CLS.get(),
+                NS_OBJECT_SEL_WINDOW_SHOULD_CLOSE.get(),
+                imp,
+                c"v@:".as_ptr(),
+            );
+        }
+    }
+
+    pub fn shared_app() -> NSApplication {
+        let obj = unsafe { msg0::<Ptr>(NS_APPLICATION_CLS.get(), &NS_APPLICATION_SEL_SHARED_APP) };
+        NSApplication(obj)
+    }
+
     pub fn set_activation_policy(&self, policy: NSApplicationActivationPolicy) {
         unsafe {
-            msg1::<NSApplicationActivationPolicy, Bool>()(
-                self.obj,
-                self.cls.sel_set_activation_policy,
+            msg1::<NSApplicationActivationPolicy, Bool>(
+                self.0,
+                &NS_APPLICATION_SEL_SET_ACTIVATION_POLICY,
                 policy,
             )
         };
     }
 
     pub fn run(&self) {
-        unsafe { msg0::<Ptr>()(self.obj, self.cls.sel_run) };
+        unsafe { msg0::<Ptr>(self.0, &NS_APPLICATION_SEL_RUN) };
+    }
+
+    pub fn terminate(&self, sender: Ptr) {
+        unsafe { msg1::<Ptr, Ptr>(self.0, &NS_APPLICATION_SEL_TERMINATE, sender) };
     }
 }
 
@@ -179,78 +244,60 @@ fn test_mem_layout() {
     assert_eq!(align_of::<NSBackingStoreType>(), align_of::<NSUInteger>());
 }
 
-pub struct NSWindowCls {
-    cls: Ptr,
-    sel_alloc: Sel,
-    sel_win_init: Sel,
-    sel_set_title: Sel,
-    sel_set_visible: Sel,
-    sel_make_main: Sel,
-}
+static NS_WINDOW_CLS: Cls = Cls::uninit();
+static NS_WINDOW_SEL_ALLOC: Sel = Sel::uninit();
+static NS_WINDOW_SEL_INIT: Sel = Sel::uninit();
+static NS_WINDOW_SEL_SET_TITLE: Sel = Sel::uninit();
+static NS_WINDOW_SEL_SET_IS_VISIBLE: Sel = Sel::uninit();
+static NS_WINDOW_SEL_MAKE_MAIN: Sel = Sel::uninit();
 
-impl NSWindowCls {
-    pub fn init() -> &'static NSWindowCls {
-        let cls = get_class(c"NSWindow");
-        let sel_alloc = sel(c"alloc");
-        let sel_win_init = sel(c"initWithContentRect:styleMask:backing:defer:");
-        let sel_set_title = sel(c"setTitle:");
-        let sel_set_visible = sel(c"setIsVisible:");
-        let sel_make_main = sel(c"makeMainWindow");
+#[repr(transparent)]
+pub struct NSWindow(Ptr);
 
-        Box::leak(Box::new(Self {
-            cls,
-            sel_alloc,
-            sel_win_init,
-            sel_set_title,
-            sel_set_visible,
-            sel_make_main,
-        }))
+impl NSWindow {
+    pub fn init() {
+        NS_WINDOW_CLS.init(c"NSWindow");
+        NS_WINDOW_SEL_ALLOC.init(c"alloc");
+        NS_WINDOW_SEL_INIT.init(c"initWithContentRect:styleMask:backing:defer:");
+        NS_WINDOW_SEL_SET_TITLE.init(c"setTitle:");
+        NS_WINDOW_SEL_SET_IS_VISIBLE.init(c"setIsVisible:");
+        NS_WINDOW_SEL_MAKE_MAIN.init(c"makeMainWindow");
     }
 
     pub fn alloc_init(
-        &'static self,
-        app_cls: &'static NSApplicationCls,
         rect: CGRect,
         style_mask: NSWindowStyleMask,
         backing: NSBackingStoreType,
         defer: bool,
     ) -> NSWindow {
         let obj = unsafe {
-            let obj = msg0::<Ptr>()(self.cls, self.sel_alloc);
-            msg4::<CGRect, NSWindowStyleMask, NSBackingStoreType, Bool, Ptr>()(
+            let obj = msg0::<Ptr>(NS_WINDOW_CLS.get(), &NS_WINDOW_SEL_ALLOC);
+            msg4::<CGRect, NSWindowStyleMask, NSBackingStoreType, Bool, Ptr>(
                 obj,
-                self.sel_win_init,
+                &NS_WINDOW_SEL_INIT,
                 rect,
                 style_mask,
                 backing,
                 defer as Bool,
             )
         };
-        NSWindow { app_cls, cls: self, obj }
+        NSWindow(obj)
     }
 
-    fn window_should_close(sender: Ptr, sel: Sel) -> Bool {
-        println!("FROM window_should_close {:?} {:?}", sel, sender);
-        true as Bool
-    }
-}
-
-pub struct NSWindow {
-    app_cls: &'static NSApplicationCls,
-    cls: &'static NSWindowCls,
-    obj: Ptr,
-}
-
-impl NSWindow {
     pub fn set_title(&self, title: NSString) {
-        unsafe { msg1::<Ptr, Ptr>()(self.obj, self.cls.sel_set_title, title.obj) };
+        unsafe { msg1::<NSString, Ptr>(self.0, &NS_WINDOW_SEL_SET_TITLE, title) };
     }
 
     pub fn set_visibility(&self, is_visible: bool) {
-        unsafe { msg1::<Bool, Ptr>()(self.obj, self.cls.sel_set_visible, is_visible as Bool) };
+        unsafe { msg1::<Bool, Ptr>(self.0, &NS_WINDOW_SEL_SET_IS_VISIBLE, is_visible as Bool) };
     }
 
     pub fn set_main(&self) {
-        unsafe { msg0::<Ptr>()(self.obj, self.cls.sel_make_main) };
+        unsafe { msg0::<Ptr>(self.0, &NS_WINDOW_SEL_MAKE_MAIN) };
+    }
+
+    fn window_should_close(sender: Ptr, _sel: Sel) -> Bool {
+        NSApplication::shared_app().terminate(sender);
+        true as Bool
     }
 }
