@@ -1,5 +1,5 @@
 use crate::objc::{
-    self, CGPoint, CGRect, CGSize, MTKView, MTLCreateSystemDefaultDevice, NSApplication,
+    self, CGPoint, CGRect, CGSize, MTKView, MTLDevice, NSApplication,
     NSApplicationActivationPolicy, NSBackingStoreType, NSString, NSWindow, NSWindowStyleMask,
 };
 
@@ -34,12 +34,10 @@ pub fn init() {
             height: 100.0,
         },
     };
-    let device = MTLCreateSystemDefaultDevice();
-    device.check_null();
-    println!("{:?}", device.max_tg_mem_len());
-    //let view = MTKView::new(frame, device);
-    println!("success");
+    let device = MTLDevice::get_default();
+    let view = MTKView::new(frame, device);
 
+    win.set_content_view(view);
     win.set_title(title);
     win.set_visibility(true);
     win.set_main();
