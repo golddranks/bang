@@ -5,11 +5,10 @@ mod wrappers;
 
 pub use wrappers::{
     CGPoint, CGRect, CGSize, MTKView, MTLBuffer, MTLClearColor, MTLCommandQueue, MTLDevice,
-    MTLPrimitiveType, MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions,
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSString, NSUrl, NSWindow,
-    NSWindowStyleMask, cls, init_objc,
+    MTLPixelFormat, MTLPrimitiveType, MTLRenderPipelineDescriptor, MTLRenderPipelineState,
+    MTLResourceOptions, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSString,
+    NSUrl, NSWindow, NSWindowStyleMask, TypedMTKViewDelegate, TypedMTKViewDelegateCls, cls,
+    init_objc,
 };
 
-pub use crimes::{
-    AllocObj, InstancePtr, Sel, StaticClsPtr, TypedIvar, TypedPtr, make_subclass, register_class,
-};
+pub use crimes::{AllocObj, InstancePtr, Obj, Sel, TypedPtr};

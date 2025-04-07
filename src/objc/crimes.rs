@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use crate::error::OrDie;
 use std::{
     ffi::{CStr, CString, c_char, c_double, c_longlong, c_ulonglong, c_void},
     marker::PhantomData,
@@ -17,6 +18,8 @@ pub type CGFloat = c_double;
 
 // SAFETY: OK. each of the extern function signatures are carefully checked and thought of
 unsafe extern "C" {
+    safe fn class_addProtocol(cls: Cls, protocol: CStrPtr) -> bool;
+    safe fn object_getIndexedIvars(obj: Obj) -> *const c_void;
     safe fn object_getIvar(obj: Obj, ivar: Ivar) -> Obj;
     safe fn object_setIvar(obj: Obj, ivar: Ivar, val: Obj);
     safe fn ivar_getOffset(v: Ivar) -> usize;
@@ -48,12 +51,6 @@ pub fn make_subclass(class: Cls, name: &CStr) -> Option<UnregisteredCls> {
     objc_allocateClassPair(class, CStrPtr::new(name), 0)
 }
 
-pub fn register_class(unreg_cls: UnregisteredCls) -> Cls {
-    let cls = unreg_cls.cls();
-    objc_registerClassPair(unreg_cls);
-    cls
-}
-
 pub fn sel(name: &CStr) -> Sel {
     sel_registerName(CStrPtr::new(name))
 }
@@ -62,36 +59,24 @@ pub fn class(name: &CStr) -> Option<Cls> {
     objc_getClass(CStrPtr::new(name))
 }
 
-fn to_imp2<R, A0, A1>(f: extern "C" fn(A0, A1) -> R) -> Imp {
+fn to_imp0<R, Slf>(f: extern "C" fn(Slf, Sel) -> R) -> Imp {
     // SAFETY: OK transmuting to unsafe fn shifts the onus to the caller of that
     unsafe { transmute(f) }
 }
 
-fn to_imp3<R, A0, A1, A2>(f: extern "C" fn(A0, A1, A2) -> R) -> Imp {
-    // SAFETY: OK. transmuting to unsafe fn shifts the onus to the caller of that
+fn to_imp1<R, Slf, A0>(f: extern "C" fn(Slf, Sel, A0) -> R) -> Imp {
+    // SAFETY: OK transmuting to unsafe fn shifts the onus to the caller of that
     unsafe { transmute(f) }
 }
 
-// SAFETY: NEEDS CHECK. whether Imp interface is correct and the types descriptor matches it
-pub unsafe fn add_method2<R, A0, A1>(
-    cls: Cls,
-    sel: Sel,
-    fn_ptr: extern "C" fn(A0, A1) -> R,
-    types: &CStr,
-) -> bool {
-    // SAFETY: OK. the onus is on the caller
-    unsafe { class_addMethod(cls, sel, to_imp2(fn_ptr), CStrPtr::new(types)) }
+fn to_imp2<R, Slf, A0, A1>(f: extern "C" fn(Slf, Sel, A0, A1) -> R) -> Imp {
+    // SAFETY: OK transmuting to unsafe fn shifts the onus to the caller of that
+    unsafe { transmute(f) }
 }
 
-// SAFETY: NEEDS CHECK. whether Imp interface is correct and the types descriptor matches it
-pub unsafe fn add_method3<R, A0, A1, A2>(
-    cls: Cls,
-    sel: Sel,
-    fn_ptr: extern "C" fn(A0, A1, A2) -> R,
-    types: &CStr,
-) -> bool {
-    // SAFETY: OK. the onus is on the caller
-    unsafe { class_addMethod(cls, sel, to_imp3(fn_ptr), CStrPtr::new(types)) }
+fn to_imp3<R, Slf, A0, A1, A2>(f: extern "C" fn(Slf, Sel, A0, A1, A2) -> R) -> Imp {
+    // SAFETY: OK. transmuting to unsafe fn shifts the onus to the caller of that
+    unsafe { transmute(f) }
 }
 
 #[derive(Debug)]
@@ -194,8 +179,9 @@ impl Obj {
         Obj(NonNull::new(ptr).expect("CALLER BUG: must be called with non-null pointer"))
     }
 
-    pub unsafe fn get_tail<'free, T>(&self, offset: usize) -> &'free mut T {
-        unsafe { &mut *(self.0.as_ptr().add(offset) as *mut T) }
+    pub unsafe fn get_index_ivars<T>(&self) -> &mut T {
+        let ptr = object_getIndexedIvars(*self) as *mut T;
+        unsafe { &mut *ptr }
     }
 }
 
@@ -206,6 +192,12 @@ pub struct UnregisteredCls(Obj);
 impl UnregisteredCls {
     fn cls(&self) -> Cls {
         Cls(self.0)
+    }
+
+    pub fn register(self) -> Cls {
+        let cls = self.cls();
+        objc_registerClassPair(self);
+        cls
     }
 
     // types: https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtTypeEncodings.html
@@ -237,6 +229,54 @@ impl Cls {
 
     pub fn ivar(self, name: &CStr) -> Option<Ivar> {
         class_getInstanceVariable(self, CStrPtr::new(name))
+    }
+
+    pub fn add_protocol(self, protocol: &CStr) -> bool {
+        class_addProtocol(self, CStrPtr::new(protocol))
+    }
+
+    // SAFETY: NEEDS CHECK. whether Imp interface is correct and the types descriptor matches it
+    pub unsafe fn add_method0<R, Slf>(
+        self,
+        sel: Sel,
+        fn_ptr: extern "C" fn(Slf, Sel) -> R,
+        types: &CStr,
+    ) -> bool {
+        // SAFETY: OK. the onus is on the caller
+        unsafe { class_addMethod(self, sel, to_imp0(fn_ptr), CStrPtr::new(types)) }
+    }
+
+    // SAFETY: NEEDS CHECK. whether Imp interface is correct and the types descriptor matches it
+    pub unsafe fn add_method1<R, Slf, A0>(
+        self,
+        sel: Sel,
+        fn_ptr: extern "C" fn(Slf, Sel, A0) -> R,
+        types: &CStr,
+    ) -> bool {
+        // SAFETY: OK. the onus is on the caller
+        unsafe { class_addMethod(self, sel, to_imp1(fn_ptr), CStrPtr::new(types)) }
+    }
+
+    // SAFETY: NEEDS CHECK. whether Imp interface is correct and the types descriptor matches it
+    pub unsafe fn add_method2<R, Slf, A0, A1>(
+        self,
+        sel: Sel,
+        fn_ptr: extern "C" fn(Slf, Sel, A0, A1) -> R,
+        types: &CStr,
+    ) -> bool {
+        // SAFETY: OK. the onus is on the caller
+        unsafe { class_addMethod(self, sel, to_imp2(fn_ptr), CStrPtr::new(types)) }
+    }
+
+    // SAFETY: NEEDS CHECK. whether Imp interface is correct and the types descriptor matches it
+    pub unsafe fn add_method3<R, Slf, A0, A1, A2>(
+        self,
+        sel: Sel,
+        fn_ptr: extern "C" fn(Slf, Sel, A0, A1, A2) -> R,
+        types: &CStr,
+    ) -> bool {
+        // SAFETY: OK. the onus is on the caller
+        unsafe { class_addMethod(self, sel, to_imp3(fn_ptr), CStrPtr::new(types)) }
     }
 
     // SAFETY: the caller must ensure that the type T is layout-compatible with the allocation,
@@ -505,3 +545,13 @@ pub(crate) use objc_prop_sel;
 pub(crate) use objc_prop_sel_init;
 pub(crate) use objc_protocol_ptr;
 pub(crate) use objc_sel;
+
+pub fn make_class<T>(name: &CStr) -> Cls {
+    let cls = objc_allocateClassPair(
+        super::cls::NSObject.cls(),
+        CStrPtr::new(name),
+        size_of::<T>(),
+    )
+    .or_die("UNREACHABLE");
+    cls.register()
+}

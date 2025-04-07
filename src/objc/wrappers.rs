@@ -1,14 +1,13 @@
 #![allow(dead_code)]
-use std::{ffi::CStr, fmt::Debug, ops::BitOr};
+use std::{ffi::CStr, fmt::Debug, marker::PhantomData, ops::BitOr};
 
-use crate::objc::crimes::objc_prop_sel_init;
+use crate::{error::OrDie, objc::crimes::objc_prop_sel_init};
 
 use super::{
     AllocObj, InstancePtr,
     crimes::{
-        Bool, CGFloat, CStrPtr, Cls, NSInteger, NSUInteger, Obj, Ptr, Sel, add_method2,
-        add_method3, msg0, msg1, msg2, msg3, msg4, objc_instance_ptr, objc_prop_impl,
-        objc_protocol_ptr,
+        Bool, CGFloat, CStrPtr, Cls, NSInteger, NSUInteger, Obj, Ptr, Sel, make_class, msg0, msg1,
+        msg2, msg3, msg4, objc_instance_ptr, objc_prop_impl, objc_protocol_ptr,
     },
 };
 
@@ -16,21 +15,21 @@ unsafe extern "C" {
     safe fn MTLCreateSystemDefaultDevice() -> Ptr;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct CGPoint {
     pub x: CGFloat,
     pub y: CGFloat,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct CGSize {
     pub width: CGFloat,
     pub height: CGFloat,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct CGRect {
     pub origin: CGPoint,
@@ -42,6 +41,7 @@ pub struct CGRect {
 #[repr(transparent)]
 pub struct NSString(Obj);
 
+objc_instance_ptr!(NSObject);
 objc_instance_ptr!(NSError);
 objc_instance_ptr!(NSUrl, NSURL);
 objc_instance_ptr!(NSApplication);
@@ -61,10 +61,12 @@ objc_protocol_ptr!(MTLBuffer);
 objc_protocol_ptr!(MTLRenderPipelineState);
 objc_protocol_ptr!(MTLLibrary);
 objc_protocol_ptr!(MTLFunction);
+objc_protocol_ptr!(MTKViewDelegate);
 
 pub mod cls {
     use crate::objc::crimes::objc_class;
 
+    objc_class!(NSObject);
     objc_class!(NSURL);
     objc_class!(NSString);
     objc_class!(NSError);
@@ -78,7 +80,7 @@ pub mod cls {
     objc_class!(MTLRenderPipelineColorAttachmentDescriptor);
 }
 
-pub(super) mod sel {
+pub mod sel {
     use crate::objc::crimes::{objc_prop_sel, objc_sel};
 
     objc_sel!(alloc);
@@ -105,12 +107,17 @@ pub(super) mod sel {
     // MKTView
     objc_sel!(initWithFrame_device_);
     objc_sel!(drawRect_);
+    objc_prop_sel!(delegate);
     objc_prop_sel!(clearColor);
     objc_prop_sel!(currentRenderPassDescriptor);
     objc_prop_sel!(device);
     objc_prop_sel!(currentDrawable);
     objc_prop_sel!(colorPixelFormat);
     objc_prop_sel!(preferredFramesPerSecond);
+
+    // MTKViewDelegate
+    objc_sel!(drawInMTKView_);
+    objc_sel!(mtkView_drawableSizeWillChange_);
 
     // MTLDevice
     objc_sel!(newCommandQueue);
@@ -149,6 +156,7 @@ pub(super) mod sel {
 }
 
 pub fn init_objc() {
+    cls::NSObject.init();
     cls::NSURL.init();
     cls::NSString.init();
     cls::NSError.init();
@@ -185,12 +193,17 @@ pub fn init_objc() {
     // MTKView
     sel::initWithFrame_device_.init();
     sel::drawRect_.init();
+    objc_prop_sel_init!(delegate);
     objc_prop_sel_init!(clearColor);
     objc_prop_sel_init!(currentRenderPassDescriptor);
     objc_prop_sel_init!(device);
     objc_prop_sel_init!(currentDrawable);
     objc_prop_sel_init!(colorPixelFormat);
     objc_prop_sel_init!(preferredFramesPerSecond);
+
+    // MTKViewDelegate
+    sel::drawInMTKView_.init();
+    sel::mtkView_drawableSizeWillChange_.init();
 
     // MTLDevice
     sel::newCommandQueue.init();
@@ -328,14 +341,11 @@ fn test_mem_layout() {
 }
 
 impl NSWindow {
-    pub fn override_window_should_close(f: extern "C" fn(NSWindow, Sel) -> Bool) {
+    pub fn override_window_should_close(f: extern "C" fn(NSWindow, Sel, Obj) -> Bool) {
         unsafe {
-            add_method2(
-                cls::NSWindow.cls(),
-                sel::windowShouldClose_.sel(),
-                f,
-                c"c@:@",
-            );
+            cls::NSWindow
+                .cls()
+                .add_method1(sel::windowShouldClose_.sel(), f, c"c@:@");
         }
     }
 
@@ -397,8 +407,7 @@ pub struct MTLPixelFormat(NSUInteger);
 impl MTKView {
     pub fn override_draw_rect(f: extern "C" fn(MTKView, Sel, CGRect)) -> bool {
         unsafe {
-            add_method3(
-                cls::MTKView.cls(),
+            cls::MTKView.cls().add_method1(
                 sel::drawRect_.sel(),
                 f,
                 c"v@:{CGRect={CGPoint=dd}{CGSize=dd}}",
@@ -406,6 +415,7 @@ impl MTKView {
         }
     }
 
+    objc_prop_impl!(delegate, MTKViewDelegate, delegate, set_delegate);
     objc_prop_impl!(clearColor, MTLClearColor, clear_color, set_clear_color);
 
     objc_prop_impl!(
@@ -686,4 +696,65 @@ impl MTLClearColor {
     }
 }
 
-impl MTLClearColor {}
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct TypedMTKViewDelegate<T>(Obj, PhantomData<T>);
+
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct TypedMTKViewDelegateCls<T>(Cls, PhantomData<T>);
+
+impl<T> crate::objc::TypedPtr for TypedMTKViewDelegate<T> {
+    unsafe fn new(obj: Obj) -> Self {
+        Self(obj, PhantomData)
+    }
+    fn obj(&self) -> Obj {
+        self.0
+    }
+}
+
+impl<T> TypedMTKViewDelegate<T> {
+    pub fn get_inner(&self) -> &mut T {
+        unsafe { &mut *self.0.get_index_ivars() }
+    }
+
+    fn init(alloc: AllocObj<Self>) -> Self {
+        unsafe { msg0::<Self>(alloc.obj(), sel::init.sel()) }
+    }
+}
+
+impl<T> TypedMTKViewDelegateCls<T> {
+    pub fn init(
+        name: &CStr,
+        draw: extern "C" fn(TypedMTKViewDelegate<T>, _sel: Sel, _view: MTKView),
+        size_change: extern "C" fn(
+            TypedMTKViewDelegate<T>,
+            _sel: Sel,
+            _view: MTKView,
+            _size: CGSize,
+        ),
+    ) -> Self {
+        let cls = make_class::<T>(name);
+        unsafe {
+            cls.add_method1(sel::drawInMTKView_.sel(), draw, c"v@:@")
+                .or_die("add_method: failed adding drawInMTKView_");
+            cls.add_method2(
+                sel::mtkView_drawableSizeWillChange_.sel(),
+                size_change,
+                c"v@:@{CGSize=dd}",
+            )
+            .or_die("add_method: failed adding mtkView_drawableSizeWillChange");
+        }
+        cls.add_protocol(c"MTKViewDelegate")
+            .or_die("add_protocol: failed adding MTKViewDelegate");
+        Self(cls, PhantomData)
+    }
+
+    pub fn new_untyped(self, inner: T) -> MTKViewDelegate {
+        let alloc = unsafe { self.0.alloc::<TypedMTKViewDelegate<T>>() };
+        let dele = TypedMTKViewDelegate::init(alloc);
+        let new_inner = dele.get_inner();
+        *new_inner = inner;
+        MTKViewDelegate(dele.0)
+    }
+}

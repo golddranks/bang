@@ -19,3 +19,12 @@ impl<T> OrDie<T> for Option<T> {
         }
     }
 }
+
+impl OrDie<bool> for bool {
+    fn or_die(self, msg: &str) -> bool {
+        match self {
+            true => true,
+            false => panic!("{}", msg),
+        }
+    }
+}
