@@ -1,5 +1,6 @@
 #![feature(concat_idents)]
 
+mod error;
 mod objc;
 mod win;
 

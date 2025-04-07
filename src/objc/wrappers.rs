@@ -1,17 +1,15 @@
-use std::{ffi::CStr, fmt::Debug, ops::BitOr, ptr::null_mut};
+#![allow(dead_code)]
+use std::{ffi::CStr, fmt::Debug, ops::BitOr};
 
-use std::concat_idents;
+use crate::objc::crimes::objc_prop_sel_init;
 
-use crate::objc::crimes::msg3;
-
-use super::crimes::{
-    Bool, CGFloat, CStrPtr, Cls, NSUInteger, Obj, Ptr, Sel, add_method2, add_method3, msg0, msg1,
-    msg2, msg4, register_class, subclass,
+use super::{
+    AllocObj,
+    crimes::{
+        Bool, CGFloat, CStrPtr, Cls, NSUInteger, Obj, Ptr, Sel, add_method2, add_method3, msg0,
+        msg1, msg2, msg3, msg4, objc_instance_ptr, objc_prop, objc_protocol_ptr,
+    },
 };
-
-unsafe extern "C" {
-    safe fn MTLCreateSystemDefaultDevice() -> Ptr;
-}
 
 #[derive(Debug)]
 #[repr(C)]
@@ -34,32 +32,168 @@ pub struct CGRect {
     pub size: CGSize,
 }
 
-static SEL_ALLOC: Sel = Sel::uninit();
-static NS_STRING_CLS: Cls = Cls::uninit();
-static NS_STRING_SEL_NEW: Sel = Sel::uninit();
-static NS_STRING_SEL_UTF8: Sel = Sel::uninit();
-
-pub fn init_base() {
-    SEL_ALLOC.init(c"alloc");
-    NS_STRING_CLS.init(c"NSString");
-    NS_STRING_SEL_NEW.init(c"stringWithUTF8String:");
-    NS_STRING_SEL_UTF8.init(c"UTF8String");
+unsafe extern "C" {
+    safe fn MTLCreateSystemDefaultDevice() -> Ptr;
 }
 
-fn alloc(cls: &Cls) -> Obj {
-    unsafe { msg0::<Obj>(&cls.0, &SEL_ALLOC) }
-}
-
+// Custom Debug impl, so we won't use the objc_type! macro
+#[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct NSString(Obj);
 
+objc_instance_ptr!(NSApplication);
+objc_instance_ptr!(NSWindow);
+objc_instance_ptr!(MTKView);
+objc_instance_ptr!(MTLRenderPassDescriptor);
+objc_instance_ptr!(CAMetalDrawable);
+
+objc_protocol_ptr!(MTLDevice);
+objc_protocol_ptr!(MTLCommandQueue);
+objc_protocol_ptr!(MTLCommandBuffer);
+objc_protocol_ptr!(MTLRenderCommandEncoder);
+objc_protocol_ptr!(MTLBuffer);
+
+pub mod cls {
+    use crate::objc::crimes::objc_class;
+
+    objc_class!(NSString);
+    objc_class!(NSApplication);
+    objc_class!(NSWindow);
+    objc_class!(MTKView);
+    objc_class!(MTLRenderPassDescriptor);
+    objc_class!(CAMetalDrawable);
+}
+
+pub(super) mod sel {
+    use crate::objc::crimes::{objc_prop_sel, objc_sel};
+
+    objc_sel!(alloc);
+    objc_sel!(stringWithUTF8String_);
+    objc_sel!(UTF8String);
+
+    // NSApplication
+    objc_sel!(sharedApplication);
+    objc_sel!(setActivationPolicy_);
+    objc_sel!(run);
+    objc_sel!(stop_);
+
+    // NSWindow
+    objc_sel!(initWithContentRect_styleMask_backing_defer_);
+    objc_sel!(makeMainWindow);
+    objc_sel!(center);
+    objc_sel!(windowShouldClose_);
+    objc_prop_sel!(title);
+    objc_prop_sel!(isVisible);
+    objc_prop_sel!(contentView);
+
+    // MKTView
+    objc_sel!(initWithFrame_device_);
+    objc_sel!(drawRect_);
+    objc_sel!(setClearColor_);
+    objc_prop_sel!(currentRenderPassDescriptor);
+    objc_prop_sel!(device);
+    objc_prop_sel!(currentDrawable);
+
+    // MTLDevice
+    objc_sel!(newCommandQueue);
+    objc_sel!(newBufferWithBytes_length_options_);
+
+    // MTLCommandQueue
+    objc_sel!(commandBuffer);
+
+    // MTLCommandBuffer
+    objc_sel!(renderCommandEncoderWithDescriptor_);
+    objc_sel!(presentDrawable_);
+    objc_sel!(commit);
+
+    // MTLCommandEncoder
+    objc_sel!(endEncoding);
+
+    objc_sel!(newLibraryWithSource_options_error_);
+    objc_sel!(newRenderPipelineDescriptor);
+    objc_sel!(setVertexFunction_);
+    objc_sel!(setFragmentFunction_);
+    objc_sel!(newRenderPipelineStateWithDescriptor_error_);
+    objc_sel!(setRenderPipelineState_);
+    objc_sel!(setVertexBuffer_offset_index_);
+    objc_sel!(drawPrimitives_vertexStart_vertexCount_);
+}
+
+pub fn init_objc() {
+    cls::NSString.init();
+    cls::NSApplication.init();
+    cls::NSWindow.init();
+    cls::MTKView.init();
+    cls::MTLRenderPassDescriptor.init();
+    cls::CAMetalDrawable.init();
+
+    sel::alloc.init();
+    sel::stringWithUTF8String_.init();
+    sel::UTF8String.init();
+
+    // NSApplication
+    sel::sharedApplication.init();
+    sel::setActivationPolicy_.init();
+    sel::run.init();
+    sel::stop_.init();
+
+    // NSWindow
+    sel::initWithContentRect_styleMask_backing_defer_.init();
+    sel::makeMainWindow.init();
+    sel::center.init();
+    sel::windowShouldClose_.init();
+    objc_prop_sel_init!(title);
+    objc_prop_sel_init!(isVisible);
+    objc_prop_sel_init!(contentView);
+
+    // MTKView
+    sel::initWithFrame_device_.init();
+    sel::drawRect_.init();
+    sel::setClearColor_.init();
+    objc_prop_sel_init!(currentRenderPassDescriptor);
+    objc_prop_sel_init!(device);
+    objc_prop_sel_init!(currentDrawable);
+
+    // MTLDevice
+    sel::newCommandQueue.init();
+    sel::newBufferWithBytes_length_options_.init();
+
+    // MTLCommandQueue
+    sel::commandBuffer.init();
+
+    // MTLCommandBuffer
+    sel::renderCommandEncoderWithDescriptor_.init();
+    sel::presentDrawable_.init();
+    sel::commit.init();
+
+    // MTLCommandEncoder
+    sel::endEncoding.init();
+
+    sel::newLibraryWithSource_options_error_.init();
+    sel::newRenderPipelineDescriptor.init();
+    sel::setVertexFunction_.init();
+    sel::setFragmentFunction_.init();
+    sel::newRenderPipelineStateWithDescriptor_error_.init();
+    sel::setRenderPipelineState_.init();
+    sel::setVertexBuffer_offset_index_.init();
+    sel::drawPrimitives_vertexStart_vertexCount_.init();
+}
+
 impl NSString {
     pub fn new(s: &CStr) -> NSString {
-        unsafe { msg1::<NSString, CStrPtr>(&NS_STRING_CLS.0, &NS_STRING_SEL_NEW, s.as_ptr()) }
+        // SAFETY: OK.
+        unsafe {
+            msg1::<NSString, CStrPtr>(
+                cls::NSString.obj(),
+                sel::stringWithUTF8String_.sel(),
+                CStrPtr::new(s),
+            )
+        }
     }
 
     pub fn as_str(&self) -> &CStr {
-        unsafe { CStr::from_ptr(msg0::<CStrPtr>(&self.0, &NS_STRING_SEL_UTF8)) }
+        // SAFETY: OK. the CStrPtr lifetime is constrained by the output &CStr, which is constrained by &self
+        unsafe { msg0::<CStrPtr>(self.0, sel::UTF8String.sel()) }.to_cstr()
     }
 }
 
@@ -71,49 +205,32 @@ impl Debug for NSString {
 
 #[test]
 fn test_ns_string() {
-    init_base();
+    init_objc();
     let s = NSString::new(c"huhheiやー");
     assert_eq!(s.as_str(), c"huhheiやー");
 }
 
-static NS_APPLICATION_CLS: Cls = Cls::uninit();
-static NS_APPLICATION_SEL_SHARED_APP: Sel = Sel::uninit();
-static NS_APPLICATION_SEL_SET_ACTIVATION_POLICY: Sel = Sel::uninit();
-static NS_APPLICATION_SEL_RUN: Sel = Sel::uninit();
-static NS_APPLICATION_SEL_STOP: Sel = Sel::uninit();
-
-#[repr(transparent)]
-pub struct NSApplication(Obj);
-
 impl NSApplication {
-    pub fn init() {
-        NS_APPLICATION_CLS.init(c"NSApplication");
-        NS_APPLICATION_SEL_SHARED_APP.init(c"sharedApplication");
-        NS_APPLICATION_SEL_SET_ACTIVATION_POLICY.init(c"setActivationPolicy:");
-        NS_APPLICATION_SEL_RUN.init(c"run");
-        NS_APPLICATION_SEL_STOP.init(c"stop:");
-    }
-
-    pub fn shared_app() -> NSApplication {
-        unsafe { msg0::<NSApplication>(&NS_APPLICATION_CLS.0, &NS_APPLICATION_SEL_SHARED_APP) }
+    pub fn shared() -> NSApplication {
+        unsafe { msg0::<NSApplication>(cls::NSApplication.obj(), sel::sharedApplication.sel()) }
     }
 
     pub fn set_activation_policy(&self, policy: NSApplicationActivationPolicy) {
         unsafe {
             msg1::<Bool, NSApplicationActivationPolicy>(
-                &self.0,
-                &NS_APPLICATION_SEL_SET_ACTIVATION_POLICY,
+                self.0,
+                sel::setActivationPolicy_.sel(),
                 policy,
             )
         };
     }
 
     pub fn run(&self) {
-        unsafe { msg0::<Ptr>(&self.0, &NS_APPLICATION_SEL_RUN) };
+        unsafe { msg0::<()>(self.0, sel::run.sel()) };
     }
 
-    pub fn stop(&self, sender: Ptr) {
-        unsafe { msg1::<Ptr, Ptr>(&self.0, &NS_APPLICATION_SEL_STOP, sender) };
+    pub fn stop(&self, sender: Obj) {
+        unsafe { msg1::<(), Obj>(self.0, sel::stop_.sel(), sender) };
     }
 }
 
@@ -131,17 +248,17 @@ pub enum NSBackingStoreType {
 pub struct NSWindowStyleMask(NSUInteger);
 
 impl NSWindowStyleMask {
-    pub const TITLED: Self = NSWindowStyleMask(1);
-    pub const CLOSABLE: Self = NSWindowStyleMask(2);
-    pub const MINIATURIZABLE: Self = NSWindowStyleMask(4);
-    pub const RESIZABLE: Self = NSWindowStyleMask(8);
+    pub const TITLED: Self = Self(1);
+    pub const CLOSABLE: Self = Self(2);
+    pub const MINIATURIZABLE: Self = Self(4);
+    pub const RESIZABLE: Self = Self(8);
 }
 
 impl BitOr for NSWindowStyleMask {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        NSWindowStyleMask(self.0 | rhs.0)
+        Self(self.0 | rhs.0)
     }
 }
 
@@ -161,40 +278,20 @@ fn test_mem_layout() {
     assert_eq!(align_of::<NSBackingStoreType>(), align_of::<NSUInteger>());
 }
 
-static NS_WINDOW_CLS: Cls = Cls::uninit();
-static NS_WINDOW_SEL_INIT: Sel = Sel::uninit();
-static NS_WINDOW_SEL_SET_TITLE: Sel = Sel::uninit();
-static NS_WINDOW_SEL_SET_IS_VISIBLE: Sel = Sel::uninit();
-static NS_WINDOW_SEL_MAKE_MAIN: Sel = Sel::uninit();
-static NS_WINDOW_SEL_CENTER: Sel = Sel::uninit();
-static NS_WINDOW_SEL_SET_CONTENT_VIEW: Sel = Sel::uninit();
-static NS_OBJECT_SEL_WINDOW_SHOULD_CLOSE: Sel = Sel::uninit();
-
-#[repr(transparent)]
-pub struct NSWindow(Obj);
-
 impl NSWindow {
-    pub fn init() {
-        NS_WINDOW_CLS.init(c"NSWindow");
-        NS_WINDOW_SEL_INIT.init(c"initWithContentRect:styleMask:backing:defer:");
-        NS_WINDOW_SEL_SET_TITLE.init(c"setTitle:");
-        NS_WINDOW_SEL_SET_IS_VISIBLE.init(c"setIsVisible:");
-        NS_WINDOW_SEL_MAKE_MAIN.init(c"makeMainWindow");
-        NS_WINDOW_SEL_CENTER.init(c"center");
-        NS_WINDOW_SEL_SET_CONTENT_VIEW.init(c"setContentView:");
-        NS_OBJECT_SEL_WINDOW_SHOULD_CLOSE.init(c"windowShouldClose:");
-
+    pub fn override_window_should_close(f: extern "C" fn(NSWindow, Sel) -> Bool) {
         unsafe {
             add_method2(
-                &NS_WINDOW_CLS,
-                &NS_OBJECT_SEL_WINDOW_SHOULD_CLOSE,
-                NSWindow::window_should_close_override,
+                cls::NSWindow.cls(),
+                sel::windowShouldClose_.sel(),
+                f,
                 c"c@:@",
             );
         }
     }
 
-    pub fn alloc_init(
+    pub fn init(
+        alloc: AllocObj<NSWindow>,
         rect: CGRect,
         style_mask: NSWindowStyleMask,
         backing: NSBackingStoreType,
@@ -202,8 +299,8 @@ impl NSWindow {
     ) -> NSWindow {
         unsafe {
             msg4::<NSWindow, CGRect, NSWindowStyleMask, NSBackingStoreType, Bool>(
-                &alloc(&NS_WINDOW_CLS),
-                &NS_WINDOW_SEL_INIT,
+                alloc.obj(),
+                sel::initWithContentRect_styleMask_backing_defer_.sel(),
                 rect,
                 style_mask,
                 backing,
@@ -212,60 +309,18 @@ impl NSWindow {
         }
     }
 
-    pub fn set_title(&self, title: NSString) {
-        unsafe { msg1::<Ptr, NSString>(&self.0, &NS_WINDOW_SEL_SET_TITLE, title) };
-    }
-
-    pub fn set_visibility(&self, is_visible: bool) {
-        unsafe { msg1::<Ptr, Bool>(&self.0, &NS_WINDOW_SEL_SET_IS_VISIBLE, is_visible as Bool) };
-    }
-
     pub fn set_main(&self) {
-        unsafe { msg0::<Ptr>(&self.0, &NS_WINDOW_SEL_MAKE_MAIN) };
+        unsafe { msg0::<()>(self.0, sel::makeMainWindow.sel()) };
     }
 
     pub fn center(&self) {
-        unsafe { msg0::<Ptr>(&self.0, &NS_WINDOW_SEL_CENTER) };
+        unsafe { msg0::<()>(self.0, sel::center.sel()) };
     }
 
-    extern "C" fn window_should_close_override(sender: Ptr, _sel: Sel) -> Bool {
-        println!("Window closed!");
-        NSApplication::shared_app().stop(sender);
-        true as Bool
-    }
-
-    pub fn set_content_view(&self, view: MTKView) {
-        unsafe { msg1::<Ptr, MTKView>(&self.0, &NS_WINDOW_SEL_SET_CONTENT_VIEW, view) };
-    }
+    objc_prop!(title, NSString, title, set_title);
+    objc_prop!(isVisible, bool, is_visible, set_is_visible);
+    objc_prop!(contentView, MTKView, content_view, set_content_view);
 }
-
-static MTK_VIEW_CLS_CUSTOM: Cls = Cls::uninit();
-static MTK_VIEW_SEL_INIT: Sel = Sel::uninit();
-static MTK_VIEW_SEL_DRAW_RECT: Sel = Sel::uninit();
-static MTK_VIEW_SEL_DEVICE: Sel = Sel::uninit();
-static MTK_VIEW_SEL_CURRENT_DRAWABLE: Sel = Sel::uninit();
-static MTK_VIEW_SEL_RPASS_DESC: Sel = Sel::uninit();
-
-static MTL_DEVICE_SEL_NEW_CMD_QUEUE: Sel = Sel::uninit();
-static MTL_CMD_BUF_SEL_CMD_BUF: Sel = Sel::uninit();
-static MTL_CMD_BUF_SEL_RENCODER: Sel = Sel::uninit();
-static MTK_VIEW_SEL_SET_CLEAR_COLOR: Sel = Sel::uninit();
-static MTL_RENCODER_SEL_END: Sel = Sel::uninit();
-static MTL_CMD_BUF_SEL_PRESENT_DRAWABLE: Sel = Sel::uninit();
-static MTL_CMD_BUF_SEL_COMMIT: Sel = Sel::uninit();
-static MTL_DEVICE_SEL_NEW_BUF: Sel = Sel::uninit();
-
-static MTL_DEVICE_SEL_NEW_LIB: Sel = Sel::uninit();
-static MTL_DEVICE_SEL_NEW_PIPE_DESC: Sel = Sel::uninit();
-static MTL_PIPE_DESC_SEL_ADD_VTEX_FN: Sel = Sel::uninit();
-static MTL_PIPE_DESC_SEL_ADD_FRAG_FN: Sel = Sel::uninit();
-static MTL_DEVICE_SEL_NEW_PIPE_STATE: Sel = Sel::uninit();
-static MTL_RENCODER_SEL_SET_PIPE_STATE: Sel = Sel::uninit();
-static MTL_RENCODER_SEL_SET_VTEX_BUF: Sel = Sel::uninit();
-static MTL_RENCODER_SEL_DRAW_PRIMITIVES: Sel = Sel::uninit();
-
-#[repr(transparent)]
-pub struct MTKView(Obj);
 
 #[repr(C)]
 #[derive(Debug)]
@@ -282,190 +337,115 @@ enum MTLPrimitiveType {
     Triangle = 3,
 }
 
-macro_rules! c_stringify {
-    ($str:expr) => {
-        const {
-            match CStr::from_bytes_with_nul(concat!(stringify!($str), "\0").as_bytes()) {
-                Ok(cstr) => cstr,
-                Err(_) => unreachable!(),
-            }
-        }
-    };
-}
-
-macro_rules! objc_class {
-    ($class:ident) => {
-        #[allow(nonstandard_style)]
-        static $class: Cls = Cls::uninit();
-        $class.init(c_stringify!($class));
-    };
-}
-
-macro_rules! objc_sel {
-    ( $sel:ident ) => {
-        #[allow(nonstandard_style)]
-        static $sel: Sel = Sel::uninit();
-        $sel.init_from_underscored_literal(stringify!($sel));
-    };
-}
-
 impl MTKView {
-    pub fn init() {
-        objc_class!(MTKView);
-        objc_sel!(initWithFrame_device_);
-        MTK_VIEW_SEL_INIT.init(c"initWithFrame:device:");
-        MTK_VIEW_SEL_DRAW_RECT.init(c"drawRect:");
-        MTK_VIEW_SEL_DEVICE.init(c"device");
-        MTK_VIEW_SEL_CURRENT_DRAWABLE.init(c"currentDrawable");
-        MTK_VIEW_SEL_RPASS_DESC.init(c"currentRenderPassDescriptor");
-        MTK_VIEW_SEL_SET_CLEAR_COLOR.init(c"setClearColor:");
-
-        MTL_DEVICE_SEL_NEW_CMD_QUEUE.init(c"newCommandQueue");
-        MTL_CMD_BUF_SEL_CMD_BUF.init(c"commandBuffer");
-        MTL_CMD_BUF_SEL_RENCODER.init(c"renderCommandEncoderWithDescriptor:");
-        MTL_RENCODER_SEL_END.init(c"endEncoding");
-        MTL_CMD_BUF_SEL_PRESENT_DRAWABLE.init(c"presentDrawable:");
-        MTL_CMD_BUF_SEL_COMMIT.init(c"commit");
-        MTL_DEVICE_SEL_NEW_BUF.init(c"newBufferWithLength:options:");
-        MTL_DEVICE_SEL_NEW_LIB.init(c"newLibraryWithSource:options:error:");
-        MTL_DEVICE_SEL_NEW_PIPE_DESC.init(c"newRenderPipelineDescriptor");
-        MTL_PIPE_DESC_SEL_ADD_VTEX_FN.init(c"setVertexFunction:");
-        MTL_PIPE_DESC_SEL_ADD_FRAG_FN.init(c"setFragmentFunction:");
-        MTL_DEVICE_SEL_NEW_PIPE_STATE.init(c"newRenderPipelineStateWithDescriptor:error:");
-        MTL_RENCODER_SEL_SET_PIPE_STATE.init(c"setRenderPipelineState:");
-        MTL_RENCODER_SEL_SET_VTEX_BUF.init(c"setVertexBuffer:offset:index:");
-        MTL_RENCODER_SEL_DRAW_PRIMITIVES.init(c"drawPrimitives:vertexStart:vertexCount:");
-
-        let custom_view = subclass(&MTKView, c"CustomMTKView");
+    pub fn override_draw_rect(f: extern "C" fn(MTKView, Sel, CGRect)) -> bool {
         unsafe {
             add_method3(
-                &custom_view,
-                &MTK_VIEW_SEL_DRAW_RECT,
-                MTKView::draw_rect_override,
+                cls::MTKView.cls(),
+                sel::drawRect_.sel(),
+                f,
                 c"v@:{CGRect={CGPoint=dd}{CGSize=dd}}",
-            );
+            )
         }
-        register_class(&custom_view);
-        MTK_VIEW_CLS_CUSTOM.init_with(custom_view);
     }
 
-    extern "C" fn draw_rect_override(view: Obj, _sel: Sel, _dirty_rect: CGRect) {
+    objc_prop!(
+        currentRenderPassDescriptor,
+        Option<MTLRenderPassDescriptor>,
+        current_rendpass_desc,
+        set_current_rendpass_desc
+    );
+
+    objc_prop!(
+        currentDrawable,
+        Option<CAMetalDrawable>,
+        current_drawable,
+        set_current_drawable
+    );
+
+    objc_prop!(device, Option<MTLDevice>, device, set_device);
+
+    pub fn init(alloc: AllocObj<MTKView>, frame: CGRect, device: MTLDevice) -> Self {
         unsafe {
-            let device = msg0::<Obj>(&view, &MTK_VIEW_SEL_DEVICE).or_die("device");
-            let pass_desc = msg0::<Obj>(&view, &MTK_VIEW_SEL_RPASS_DESC).or_die("pass_dec");
-            let drawable = msg0::<Obj>(&view, &MTK_VIEW_SEL_CURRENT_DRAWABLE).or_die("drawable");
-            let cmd_queue = msg0::<Obj>(&device, &MTL_DEVICE_SEL_NEW_CMD_QUEUE).or_die("cmd_queue");
-            let cmd_buf = msg0::<Obj>(&cmd_queue, &MTL_CMD_BUF_SEL_CMD_BUF).or_die("cmd_buf");
-            /*
-            let vertices: [f32; 9] = [
-                0.0, 0.5, 0.0, // Top vertex
-                -0.5, -0.5, 0.0, // Bottom-left vertex
-                0.5, -0.5, 0.0, // Bottom-right vertex
-            ];
-            let vtex_buf =
-                msg1::<Obj, _>(&device, &MTL_DEVICE_SEL_NEW_BUF, &vertices).or_die("vtexu buf");
-            let vtex_fn = msg3::<Obj, NSString, Ptr, Ptr>(
-                &device,
-                &MTL_DEVICE_SEL_NEW_LIB,
-                NSString::new(VTEX_SHADER),
-                null_mut(),
-                null_mut(),
-            )
-            .or_die("vtex_fn");
-            let frag_fn = msg3::<Obj, NSString, Ptr, Ptr>(
-                &device,
-                &MTL_DEVICE_SEL_NEW_LIB,
-                NSString::new(FRAG_SHADER),
-                null_mut(),
-                null_mut(),
-            )
-            .or_die("frag_fn"); */
-            let rencoder =
-                msg1::<Obj, Obj>(&cmd_buf, &MTL_CMD_BUF_SEL_RENCODER, pass_desc).or_die("rencoder");
-            //let pipe_desc = msg0::<Obj>(&device, &MTL_DEVICE_SEL_NEW_PIPE_DESC).or_die("pipe_desc");
-            //msg1::<(), _>(&pipe_desc, &MTL_PIPE_DESC_SEL_ADD_VTEX_FN, vtex_fn);
-            //msg1::<(), _>(&pipe_desc, &MTL_PIPE_DESC_SEL_ADD_FRAG_FN, frag_fn);
-            //let pipe_state = msg1::<Obj, _>(&device, &MTL_DEVICE_SEL_NEW_PIPE_STATE, pipe_desc);
-
-            msg0::<()>(&rencoder, &MTL_RENCODER_SEL_END);
-
-            //msg1::<(), _>(&rencoder, &MTL_RENCODER_SEL_SET_PIPE_STATE, pipe_state);
-            //msg1::<(), _>(&rencoder, &MTL_RENCODER_SEL_SET_VTEX_BUF, vtex_buf);
-            /*msg3::<(), MTLPrimitiveType, NSUInteger, NSUInteger>(
-                &rencoder,
-                &MTL_RENCODER_SEL_DRAW_PRIMITIVES,
-                MTLPrimitiveType::Triangle,
-                0,
-                3,
-            );*/
-
-            msg1::<(), _>(&cmd_buf, &MTL_CMD_BUF_SEL_PRESENT_DRAWABLE, drawable);
-            msg0::<()>(&cmd_buf, &MTL_CMD_BUF_SEL_COMMIT);
-
-            println!("draw_rect_override completed!");
-        }
-    }
-
-    pub fn new(frame: CGRect, device: MTLDevice) -> Self {
-        let view = unsafe {
             msg2::<MTKView, CGRect, MTLDevice>(
-                &alloc(&MTK_VIEW_CLS_CUSTOM),
-                &MTK_VIEW_SEL_INIT,
+                alloc.obj(),
+                sel::initWithFrame_device_.sel(),
                 frame,
                 device,
             )
-        };
-
-        unsafe {
-            msg1::<Ptr, MTLClearColor>(
-                &view.0,
-                &MTK_VIEW_SEL_SET_CLEAR_COLOR,
-                MTLClearColor {
-                    red: 0.5,
-                    green: 0.5,
-                    blue: 0.5,
-                    alpha: 0.5,
-                },
-            );
         }
-        view
     }
 }
-
-#[repr(transparent)]
-pub struct MTLDevice(Obj);
 
 impl MTLDevice {
     pub fn get_default() -> MTLDevice {
         let ptr = MTLCreateSystemDefaultDevice();
         MTLDevice(Obj::new(ptr))
     }
+
+    pub fn new_cmd_queue(&self) -> Option<MTLCommandQueue> {
+        unsafe { msg0::<Option<MTLCommandQueue>>(self.0, sel::newCommandQueue.sel()) }
+    }
+
+    pub fn new_buf<T>(&self, bytes: &[T]) -> Option<MTLBuffer> {
+        unsafe {
+            msg3::<Option<MTLBuffer>, *const u8, NSUInteger, MTLResourceOptions>(
+                self.0,
+                sel::newBufferWithBytes_length_options_.sel(),
+                bytes.as_ptr() as *const u8,
+                (bytes.len() * size_of::<T>()) as NSUInteger,
+                MTLResourceOptions::DEFAULT,
+            )
+        }
+    }
 }
 
-const VTEX_SHADER: &CStr = cr##"
-#include <metal_stdlib>
-using namespace metal;
-
-struct VertexIn {
-    float4 position [[attribute(0)]];
-};
-
-struct VertexOut {
-    float4 position [[position]];
-};
-
-vertex VertexOut vertex_main(VertexIn in [[stage_in]]) {
-    VertexOut out;
-    out.position = in.position; // Simply pass through the position
-    return out;
+impl MTLCommandQueue {
+    pub fn cmd_buf(&self) -> Option<MTLCommandBuffer> {
+        unsafe { msg0::<Option<MTLCommandBuffer>>(self.0, sel::commandBuffer.sel()) }
+    }
 }
-\0"##;
 
-const FRAG_SHADER: &CStr = cr##"
-#include <metal_stdlib>
-using namespace metal;
+impl MTLCommandBuffer {
+    pub fn rencoder_with_desc(
+        &self,
+        pass_desc: MTLRenderPassDescriptor,
+    ) -> Option<MTLRenderCommandEncoder> {
+        unsafe {
+            msg1::<Option<MTLRenderCommandEncoder>, MTLRenderPassDescriptor>(
+                self.0,
+                sel::renderCommandEncoderWithDescriptor_.sel(),
+                pass_desc,
+            )
+        }
+    }
 
-fragment float4 fragment_main() {
-    return float4(1.0, 0.0, 0.0, 1.0); // Red color for the triangle
+    pub fn present_drawable(&self, drawable: CAMetalDrawable) {
+        unsafe { msg1::<(), CAMetalDrawable>(self.0, sel::presentDrawable_.sel(), drawable) }
+    }
+
+    pub fn commit(&self) {
+        unsafe { msg0::<()>(self.0, sel::commit.sel()) }
+    }
 }
-\0"##;
+
+impl MTLRenderCommandEncoder {
+    pub fn end(&self) {
+        unsafe { msg0::<()>(self.0, sel::endEncoding.sel()) }
+    }
+}
+
+#[repr(transparent)]
+pub struct MTLResourceOptions(NSUInteger);
+
+impl MTLResourceOptions {
+    pub const DEFAULT: Self = Self(0);
+}
+
+impl BitOr for MTLResourceOptions {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}

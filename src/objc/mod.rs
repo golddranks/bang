@@ -4,6 +4,11 @@ mod crimes;
 mod wrappers;
 
 pub use wrappers::{
-    CGPoint, CGRect, CGSize, MTKView, MTLDevice, NSApplication, NSApplicationActivationPolicy,
-    NSBackingStoreType, NSString, NSWindow, NSWindowStyleMask, init_base,
+    CGPoint, CGRect, CGSize, MTKView, MTLBuffer, MTLCommandQueue, MTLDevice, NSApplication,
+    NSApplicationActivationPolicy, NSBackingStoreType, NSString, NSWindow, NSWindowStyleMask, cls,
+    init_objc,
+};
+
+pub use crimes::{
+    AllocObj, InstancePtr, Sel, StaticClsPtr, TypedIvar, TypedPtr, make_subclass, register_class,
 };

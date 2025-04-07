@@ -1,201 +1,364 @@
+#![allow(dead_code)]
 use std::{
-    ffi::{CStr, c_char, c_double, c_schar, c_ulonglong, c_void},
+    ffi::{CStr, CString, c_char, c_double, c_ulonglong, c_void},
+    marker::PhantomData,
     mem::transmute,
-    ops::Not,
-    ptr::null_mut,
+    ptr::{NonNull, null_mut},
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-pub(super) type Ptr = *mut c_void;
-pub(super) type Imp = unsafe extern "C" fn() -> *const c_void;
-pub(super) type CStrPtr = *const c_char;
-pub(super) type NSUInteger = c_ulonglong;
-pub(super) type Bool = c_schar;
-pub(super) type CGFloat = c_double;
+pub type Ptr = *mut c_void;
+pub type Imp = unsafe extern "C" fn() -> *const c_void;
+pub type NSUInteger = c_ulonglong;
+pub type Bool = bool;
+pub type CGFloat = c_double;
 
+// SAFETY: OK. each of the extern function signatures are carefully checked and thought of
 unsafe extern "C" {
-    unsafe fn objc_allocateClassPair(class: Ptr, name: CStrPtr, extraBytes: usize) -> Ptr;
-    unsafe fn objc_registerClassPair(class: Ptr);
-    unsafe fn objc_getClass(name: CStrPtr) -> Ptr;
-    unsafe fn sel_registerName(name: *const u8) -> Ptr;
+    safe fn object_getIvar(obj: Obj, ivar: Ivar) -> Obj;
+    safe fn object_setIvar(obj: Obj, ivar: Ivar, val: Obj);
+    safe fn ivar_getOffset(v: Ivar) -> usize;
+    safe fn class_getInstanceVariable(cls: Cls, name: CStrPtr) -> Option<Ivar>;
+    safe fn class_getInstanceSize(cls: Cls) -> usize;
+    safe fn objc_allocateClassPair(
+        class: Cls,
+        name: CStrPtr,
+        extraBytes: usize,
+    ) -> Option<UnregisteredCls>;
+    safe fn objc_registerClassPair(class: UnregisteredCls);
+    safe fn objc_getClass(name: CStrPtr) -> Option<Cls>;
+    safe fn sel_registerName(name: CStrPtr) -> Sel;
+    // SAFETY: NEEDS CHECK. extremely unsafe to call; requires always transmuting to an appropriate signature
     unsafe fn objc_msgSend();
-    unsafe fn class_addMethod(cls: Ptr, name: Ptr, imp: Imp, types: CStrPtr) -> Bool;
+    // SAFETY: NEEDS CHECK. check whether Imp interface is correct and the types descriptor matches it
+    unsafe fn class_addMethod(cls: Cls, name: Sel, imp: Imp, types: CStrPtr) -> Bool;
+    // SAFETY: NEEDS CHECK. check whether the Ivar details are correct and the types descriptor matches them
+    unsafe fn class_addIvar(
+        cls: UnregisteredCls,
+        name: CStrPtr,
+        size: usize,
+        alignment: u8,
+        types: CStrPtr,
+    ) -> Bool;
 }
 
-pub(super) fn subclass(class: &Cls, name: &CStr) -> Cls {
-    Cls(Obj::new(unsafe {
-        objc_allocateClassPair(class.get(), name.as_ptr(), 0)
-    }))
+pub fn make_subclass(class: Cls, name: &CStr) -> Option<UnregisteredCls> {
+    objc_allocateClassPair(class, CStrPtr::new(name), 0)
 }
 
-pub(super) fn register_class(class: &Cls) {
-    unsafe { objc_registerClassPair(class.get()) }
+pub fn register_class(unreg_cls: UnregisteredCls) -> Cls {
+    let cls = unreg_cls.cls();
+    objc_registerClassPair(unreg_cls);
+    cls
 }
 
-unsafe fn to_imp2<R, A0, A1>(f: extern "C" fn(A0, A1) -> R) -> Imp {
+pub fn sel(name: &CStr) -> Sel {
+    sel_registerName(CStrPtr::new(name))
+}
+
+pub fn class(name: &CStr) -> Option<Cls> {
+    objc_getClass(CStrPtr::new(name))
+}
+
+fn to_imp2<R, A0, A1>(f: extern "C" fn(A0, A1) -> R) -> Imp {
+    // SAFETY: OK transmuting to unsafe fn shifts the onus to the caller of that
     unsafe { transmute(f) }
 }
 
-unsafe fn to_imp3<R, A0, A1, A2>(f: extern "C" fn(A0, A1, A2) -> R) -> Imp {
+fn to_imp3<R, A0, A1, A2>(f: extern "C" fn(A0, A1, A2) -> R) -> Imp {
+    // SAFETY: OK. transmuting to unsafe fn shifts the onus to the caller of that
     unsafe { transmute(f) }
 }
 
-pub(super) unsafe fn add_method2<R, A0, A1>(
-    cls: &Cls,
-    sel: &Sel,
+// SAFETY: NEEDS CHECK. whether Imp interface is correct and the types descriptor matches it
+pub unsafe fn add_method2<R, A0, A1>(
+    cls: Cls,
+    sel: Sel,
     fn_ptr: extern "C" fn(A0, A1) -> R,
     types: &CStr,
-) {
-    unsafe {
-        class_addMethod(cls.get(), sel.get(), to_imp2(fn_ptr), types.as_ptr());
-    }
+) -> bool {
+    // SAFETY: OK. the onus is on the caller
+    unsafe { class_addMethod(cls, sel, to_imp2(fn_ptr), CStrPtr::new(types)) }
 }
 
-pub(super) unsafe fn add_method3<R, A0, A1, A2>(
-    cls: &Cls,
-    sel: &Sel,
+// SAFETY: NEEDS CHECK. whether Imp interface is correct and the types descriptor matches it
+pub unsafe fn add_method3<R, A0, A1, A2>(
+    cls: Cls,
+    sel: Sel,
     fn_ptr: extern "C" fn(A0, A1, A2) -> R,
     types: &CStr,
-) {
-    unsafe {
-        class_addMethod(cls.get(), sel.get(), to_imp3(fn_ptr), types.as_ptr());
+) -> bool {
+    // SAFETY: OK. the onus is on the caller
+    unsafe { class_addMethod(cls, sel, to_imp3(fn_ptr), CStrPtr::new(types)) }
+}
+
+pub struct NamedStaticPtr {
+    name: &'static CStr,
+    ptr: AtomicPtr<c_void>,
+}
+
+impl NamedStaticPtr {
+    pub const fn new(name: &'static CStr) -> Self {
+        Self {
+            name,
+            ptr: AtomicPtr::new(null_mut()),
+        }
+    }
+    pub fn init(&self, obj: Obj) {
+        if self
+            .ptr
+            .compare_exchange(
+                null_mut(),
+                obj.0.as_ptr(),
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            panic!("No re-setting!");
+        }
+    }
+
+    pub fn obj(&self) -> Obj {
+        let ptr = self.ptr.load(Ordering::Relaxed);
+        Obj::new(ptr)
     }
 }
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub(super) struct Obj(AtomicPtr<c_void>);
+pub struct CStrPtr<'a>(*const c_char, PhantomData<&'a c_char>);
+
+impl<'a> CStrPtr<'a> {
+    pub fn new(cstr: &CStr) -> Self {
+        Self(cstr.as_ptr(), PhantomData)
+    }
+
+    pub fn to_cstr(&self) -> &'a CStr {
+        unsafe { CStr::from_ptr(self.0) }
+    }
+}
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct AllocObj<T>(Obj, PhantomData<T>);
+
+impl<T> AllocObj<T> {
+    pub(super) fn obj(&self) -> Obj {
+        self.0
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(transparent)]
+pub struct TypedIvar<T>(Ivar, PhantomData<T>);
+
+#[derive(Debug, Copy, Clone)]
+#[repr(transparent)]
+pub struct Ivar(NonNull<c_void>);
+
+impl Ivar {
+    pub fn offset(self) -> usize {
+        ivar_getOffset(self)
+    }
+}
+
+impl<T: TypedPtr> TypedIvar<T> {
+    pub unsafe fn new(ivar: Ivar) -> Self {
+        TypedIvar(ivar, PhantomData)
+    }
+
+    pub fn offset(self) -> usize {
+        self.0.offset()
+    }
+
+    pub fn set(self, obj: Obj, value: T) {
+        object_setIvar(obj, self.0, value.obj())
+    }
+
+    pub fn get(self, obj: Obj) -> T {
+        unsafe { T::new(object_getIvar(obj, self.0)) }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(transparent)]
+pub struct Obj(NonNull<c_void>);
 
 impl Obj {
-    pub(super) const fn uninit() -> Self {
-        Self(AtomicPtr::new(null_mut()))
+    pub const fn new(ptr: Ptr) -> Self {
+        Obj(NonNull::new(ptr).expect("CALLER BUG: must be called with non-null pointer"))
     }
 
-    pub(super) fn get(&self) -> Ptr {
-        let ptr = self.0.load(Ordering::Relaxed);
-        assert!(ptr.is_null().not());
-        ptr
-    }
-
-    pub(super) fn or_die(self, msg: &str) -> Self {
-        if self.is_null() {
-            eprintln!("Stuff is null: {msg}");
-            panic!()
-        }
-        self
-    }
-
-    pub(super) fn is_null(&self) -> bool {
-        self.0.load(Ordering::Relaxed).is_null()
-    }
-
-    pub(super) fn new(ptr: Ptr) -> Self {
-        assert!(ptr.is_null().not());
-        let obj = Obj::uninit();
-        obj.set(ptr);
-        obj
-    }
-
-    fn set(&self, ptr: Ptr) {
-        assert!(ptr.is_null().not());
-        self.0.store(ptr, Ordering::Relaxed);
+    pub unsafe fn get_tail<'free, T>(&self, offset: usize) -> &'free mut T {
+        unsafe { &mut *(self.0.as_ptr().add(offset) as *mut T) }
     }
 }
 
+#[derive(Debug)]
 #[repr(transparent)]
-pub(super) struct Cls(pub(super) Obj);
+pub struct UnregisteredCls(Obj);
+
+impl UnregisteredCls {
+    fn cls(&self) -> Cls {
+        Cls(self.0)
+    }
+
+    // types: https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtTypeEncodings.html
+    pub unsafe fn add_ivar<T>(&self, name: &CStr, types: &CStr) -> bool {
+        unsafe {
+            class_addIvar(
+                UnregisteredCls(self.0),
+                CStrPtr::new(name),
+                size_of::<T>(),
+                align_of::<T>() as u8,
+                CStrPtr::new(types),
+            )
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(transparent)]
+pub struct Cls(Obj);
 
 impl Cls {
-    pub(super) const fn uninit() -> Self {
-        Self(Obj::uninit())
+    pub fn obj(self) -> Obj {
+        self.0
     }
 
-    pub(super) fn get(&self) -> Ptr {
-        self.0.get()
+    pub fn instance_size(self) -> usize {
+        class_getInstanceSize(self)
     }
 
-    pub(super) fn init(&self, name: &CStr) {
-        self.0.set(unsafe { objc_getClass(name.as_ptr()) });
+    pub fn ivar(self, name: &CStr) -> Option<Ivar> {
+        class_getInstanceVariable(self, CStrPtr::new(name))
     }
 
-    pub(super) fn init_with(&self, cls: Cls) {
-        self.0.set(cls.0.get());
+    // SAFETY: the caller must ensure that the type T is layout-compatible with the allocation,
+    // i.e. that the self Cls object is a subclass of T's Cls
+    pub unsafe fn alloc<T>(self) -> AllocObj<T> {
+        unsafe { msg0::<AllocObj<T>>(self.obj(), super::wrappers::sel::alloc.sel()) }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(transparent)]
+pub struct Sel(Obj);
+
+#[repr(transparent)]
+pub struct StaticClsPtr(NamedStaticPtr);
+
+impl StaticClsPtr {
+    pub const fn new(name: &'static CStr) -> Self {
+        Self(NamedStaticPtr::new(name))
+    }
+
+    pub fn cls(&self) -> Cls {
+        Cls(self.0.obj())
+    }
+
+    pub fn obj(&self) -> Obj {
+        self.0.obj()
+    }
+
+    pub fn init(&self) {
+        let Some(cls) = class(self.0.name) else {
+            panic!("CALLER BUG: unknown class name: {:?}", self.0.name);
+        };
+        self.0.init(cls.obj());
+    }
+
+    pub fn init_with(&self, cls: Cls) {
+        self.0.init(cls.obj());
     }
 }
 
 #[repr(transparent)]
-pub(super) struct Sel(Obj);
+pub struct StaticSelPtr(NamedStaticPtr);
 
-impl Sel {
-    pub(super) const fn uninit() -> Self {
-        Self(Obj::uninit())
+impl StaticSelPtr {
+    pub const fn new(name: &'static CStr) -> Self {
+        Self(NamedStaticPtr::new(name))
     }
 
-    pub(super) fn get(&self) -> Ptr {
-        self.0.get()
+    pub fn sel(&self) -> Sel {
+        Sel(self.0.obj())
     }
 
-    pub(super) fn init(&self, name: &CStr) {
-        self.0
-            .set(unsafe { sel_registerName(name.as_ptr() as *const u8) });
+    pub fn init(&self) {
+        let colon_name = cstr_replace(self.0.name, b'_', b':');
+        let sel = sel(&colon_name);
+
+        self.0.init(sel.0);
     }
 
-    pub(super) fn init_from_underscored_literal(&self, name: &str) {
-        let mut colon_name = name.replace("_", ":");
-        colon_name.push('\0');
-        self.0.set(unsafe { sel_registerName(colon_name.as_ptr()) });
+    pub fn init_setter(&self) {
+        let mut buf = b"set".to_vec();
+        buf.extend_from_slice(self.0.name.to_bytes());
+        buf[3] = buf[3].to_ascii_uppercase();
+        buf.push(b':');
+        buf.push(b'\0');
+        let setter_name = CString::from_vec_with_nul(buf).expect("UNREACHABLE");
+        let sel = sel(&setter_name);
+
+        self.0.init(sel.0);
     }
 }
 
-pub(super) unsafe fn msg0<R>(receiver: &Obj, selector: &Sel) -> R {
+fn cstr_replace(cstr: &CStr, needle: u8, with: u8) -> CString {
+    let mut buf = cstr.to_bytes_with_nul().to_owned();
+    for c in &mut buf {
+        if *c == needle {
+            *c = with;
+        }
+    }
+    CString::from_vec_with_nul(buf).expect("UNREACHABLE: originally from to_bytes_with_nul")
+}
+
+pub unsafe fn msg0<R>(receiver: Obj, selector: Sel) -> R {
     unsafe {
         let fn_ptr = transmute::<
             unsafe extern "C" fn(),
-            unsafe extern "C" fn(receiver: Ptr, selector: Ptr) -> R,
+            unsafe extern "C" fn(receiver: Obj, selector: Sel) -> R,
         >(objc_msgSend as unsafe extern "C" fn());
-        fn_ptr(receiver.get(), selector.get())
+        fn_ptr(receiver, selector)
     }
 }
 
-pub(super) unsafe fn msg1<R, A0>(receiver: &Obj, selector: &Sel, arg0: A0) -> R {
+pub unsafe fn msg1<R, A0>(receiver: Obj, selector: Sel, arg0: A0) -> R {
     unsafe {
         let fn_ptr = transmute::<
             unsafe extern "C" fn(),
-            unsafe extern "C" fn(receiver: Ptr, selector: Ptr, arg0: A0) -> R,
+            unsafe extern "C" fn(receiver: Obj, selector: Sel, arg0: A0) -> R,
         >(objc_msgSend as unsafe extern "C" fn());
-        fn_ptr(receiver.get(), selector.get(), arg0)
+        fn_ptr(receiver, selector, arg0)
     }
 }
 
-pub(super) unsafe fn msg2<R, A0, A1>(receiver: &Obj, selector: &Sel, arg0: A0, arg1: A1) -> R {
+pub unsafe fn msg2<R, A0, A1>(receiver: Obj, selector: Sel, arg0: A0, arg1: A1) -> R {
     unsafe {
         let fn_ptr = transmute::<
             unsafe extern "C" fn(),
-            unsafe extern "C" fn(receiver: Ptr, selector: Ptr, arg0: A0, arg1: A1) -> R,
+            unsafe extern "C" fn(receiver: Obj, selector: Sel, arg0: A0, arg1: A1) -> R,
         >(objc_msgSend as unsafe extern "C" fn());
-        fn_ptr(receiver.get(), selector.get(), arg0, arg1)
+        fn_ptr(receiver, selector, arg0, arg1)
     }
 }
 
-pub(super) unsafe fn msg3<R, A0, A1, A2>(
-    receiver: &Obj,
-    selector: &Sel,
-    arg0: A0,
-    arg1: A1,
-    arg2: A2,
-) -> R {
+pub unsafe fn msg3<R, A0, A1, A2>(receiver: Obj, selector: Sel, arg0: A0, arg1: A1, arg2: A2) -> R {
     unsafe {
         let fn_ptr = transmute::<
             unsafe extern "C" fn(),
-            unsafe extern "C" fn(receiver: Ptr, selector: Ptr, arg0: A0, arg1: A1, arg2: A2) -> R,
+            unsafe extern "C" fn(receiver: Obj, selector: Sel, arg0: A0, arg1: A1, arg2: A2) -> R,
         >(objc_msgSend as unsafe extern "C" fn());
-        fn_ptr(receiver.get(), selector.get(), arg0, arg1, arg2)
+        fn_ptr(receiver, selector, arg0, arg1, arg2)
     }
 }
 
-pub(super) unsafe fn msg4<R, A0, A1, A2, A3>(
-    receiver: &Obj,
-    selector: &Sel,
+pub unsafe fn msg4<R, A0, A1, A2, A3>(
+    receiver: Obj,
+    selector: Sel,
     arg0: A0,
     arg1: A1,
     arg2: A2,
@@ -205,14 +368,132 @@ pub(super) unsafe fn msg4<R, A0, A1, A2, A3>(
         let fn_ptr = transmute::<
             unsafe extern "C" fn(),
             unsafe extern "C" fn(
-                receiver: Ptr,
-                selector: Ptr,
+                receiver: Obj,
+                selector: Sel,
                 arg0: A0,
                 arg1: A1,
                 arg2: A2,
                 arg3: A3,
             ) -> R,
         >(objc_msgSend as unsafe extern "C" fn());
-        fn_ptr(receiver.get(), selector.get(), arg0, arg1, arg2, arg3)
+        fn_ptr(receiver, selector, arg0, arg1, arg2, arg3)
     }
 }
+
+macro_rules! c_stringify {
+    ($str:expr) => {
+        const {
+            match std::ffi::CStr::from_bytes_with_nul(concat!(stringify!($str), "\0").as_bytes()) {
+                Ok(cstr) => cstr,
+                Err(_) => unreachable!(),
+            }
+        }
+    };
+}
+
+macro_rules! objc_class {
+    ($class:ident) => {
+        #[allow(nonstandard_style)]
+        pub static $class: crate::objc::crimes::StaticClsPtr =
+            crate::objc::crimes::StaticClsPtr::new(crate::objc::crimes::c_stringify!($class));
+    };
+}
+
+macro_rules! objc_sel {
+    ( $sel:ident ) => {
+        #[allow(nonstandard_style)]
+        pub static $sel: crate::objc::crimes::StaticSelPtr =
+            crate::objc::crimes::StaticSelPtr::new(crate::objc::crimes::c_stringify!($sel));
+    };
+}
+
+macro_rules! objc_prop_sel {
+    ( $prop:ident ) => {
+        #[allow(nonstandard_style)]
+        pub mod $prop {
+            pub static GETTER: crate::objc::crimes::StaticSelPtr =
+                crate::objc::crimes::StaticSelPtr::new(crate::objc::crimes::c_stringify!($prop));
+            pub static SETTER: crate::objc::crimes::StaticSelPtr =
+                crate::objc::crimes::StaticSelPtr::new(crate::objc::crimes::c_stringify!($prop));
+        }
+    };
+}
+
+macro_rules! objc_prop_sel_init {
+    ( $prop:ident ) => {
+        sel::$prop::GETTER.init();
+        sel::$prop::SETTER.init_setter();
+    };
+}
+
+macro_rules! objc_prop {
+    ( $prop:ident, $prop_type:ty, $getter:ident, $setter:ident ) => {
+        pub fn $getter(&self) -> $prop_type {
+            unsafe { msg0::<$prop_type>(self.0, sel::$prop::GETTER.sel()) }
+        }
+        pub fn $setter(&self, arg: $prop_type) {
+            unsafe { msg1::<(), $prop_type>(self.0, sel::$prop::SETTER.sel(), arg) };
+        }
+    };
+}
+
+macro_rules! objc_instance_ptr {
+    ( $type:ident ) => {
+        #[derive(Debug, Clone, Copy)]
+        #[repr(transparent)]
+        pub struct $type(Obj);
+
+        impl crate::objc::TypedPtr for $type {
+            unsafe fn new(obj: Obj) -> Self {
+                Self(obj)
+            }
+            fn obj(&self) -> Obj {
+                self.0
+            }
+        }
+
+        impl crate::objc::InstancePtr for $type {
+            fn cls() -> Cls {
+                cls::$type.cls()
+            }
+        }
+    };
+}
+
+macro_rules! objc_protocol_ptr {
+    ( $type:ident ) => {
+        #[derive(Debug, Clone, Copy)]
+        #[repr(transparent)]
+        pub struct $type(Obj);
+
+        impl crate::objc::TypedPtr for $type {
+            unsafe fn new(obj: Obj) -> Self {
+                Self(obj)
+            }
+            fn obj(&self) -> Obj {
+                self.0
+            }
+        }
+    };
+}
+
+pub trait TypedPtr: Sized {
+    unsafe fn new(obj: Obj) -> Self;
+    fn obj(&self) -> Obj;
+}
+
+pub trait InstancePtr: TypedPtr {
+    fn cls() -> Cls;
+    fn alloc() -> AllocObj<Self> {
+        unsafe { Self::cls().alloc::<Self>() }
+    }
+}
+
+pub(crate) use c_stringify;
+pub(crate) use objc_class;
+pub(crate) use objc_instance_ptr;
+pub(crate) use objc_prop;
+pub(crate) use objc_prop_sel;
+pub(crate) use objc_prop_sel_init;
+pub(crate) use objc_protocol_ptr;
+pub(crate) use objc_sel;
