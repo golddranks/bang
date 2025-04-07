@@ -77,7 +77,10 @@ impl DrawState {
 
         let lib = device
             .new_lib_with_url(NSUrl::new(c"target/shaders.metallib"))
-            .or_die("new_lib_with_url: Failed to create library");
+            .or_die(
+                "new_lib_with_url: Failed to create library with file target/shaders.metallib! \
+                Try running `make shaders` to generate that file.",
+            );
 
         desc.set_vtex_fn(lib.new_fn(c"vertexShader"));
         desc.set_frag_fn(lib.new_fn(c"fragmentShader"));
