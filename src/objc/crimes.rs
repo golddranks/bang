@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 use std::{
-    ffi::{CStr, CString, c_char, c_double, c_ulonglong, c_void},
+    ffi::{CStr, CString, c_char, c_double, c_longlong, c_ulonglong, c_void},
     marker::PhantomData,
     mem::transmute,
+    ops::Not,
     ptr::{NonNull, null_mut},
     sync::atomic::{AtomicPtr, Ordering},
 };
@@ -10,6 +11,7 @@ use std::{
 pub type Ptr = *mut c_void;
 pub type Imp = unsafe extern "C" fn() -> *const c_void;
 pub type NSUInteger = c_ulonglong;
+pub type NSInteger = c_longlong;
 pub type Bool = bool;
 pub type CGFloat = c_double;
 
@@ -122,7 +124,7 @@ impl NamedStaticPtr {
 
     pub fn obj(&self) -> Obj {
         let ptr = self.ptr.load(Ordering::Relaxed);
-        debug_assert!(ptr != null_mut(), "{:?} is uninitialized!", self.name);
+        debug_assert!(ptr.is_null().not(), "{:?} is uninitialized!", self.name);
         Obj::new(ptr)
     }
 }
@@ -441,7 +443,10 @@ macro_rules! objc_prop_impl {
 }
 
 macro_rules! objc_instance_ptr {
-    ( $type:ident ) => {
+    ( $type:ident) => {
+        objc_instance_ptr!($type, $type);
+    };
+    ( $type:ident, $cls:ident ) => {
         #[derive(Debug, Clone, Copy)]
         #[repr(transparent)]
         pub struct $type(Obj);
@@ -457,7 +462,7 @@ macro_rules! objc_instance_ptr {
 
         impl crate::objc::InstancePtr for $type {
             fn cls() -> Cls {
-                cls::$type.cls()
+                cls::$cls.cls()
             }
         }
     };

@@ -6,10 +6,15 @@ use crate::objc::crimes::objc_prop_sel_init;
 use super::{
     AllocObj, InstancePtr,
     crimes::{
-        Bool, CGFloat, CStrPtr, Cls, NSUInteger, Obj, Ptr, Sel, add_method2, add_method3, msg0,
-        msg1, msg2, msg3, msg4, objc_instance_ptr, objc_prop_impl, objc_protocol_ptr,
+        Bool, CGFloat, CStrPtr, Cls, NSInteger, NSUInteger, Obj, Ptr, Sel, add_method2,
+        add_method3, msg0, msg1, msg2, msg3, msg4, objc_instance_ptr, objc_prop_impl,
+        objc_protocol_ptr,
     },
 };
+
+unsafe extern "C" {
+    safe fn MTLCreateSystemDefaultDevice() -> Ptr;
+}
 
 #[derive(Debug)]
 #[repr(C)]
@@ -32,23 +37,21 @@ pub struct CGRect {
     pub size: CGSize,
 }
 
-unsafe extern "C" {
-    safe fn MTLCreateSystemDefaultDevice() -> Ptr;
-}
-
 // Custom Debug impl, so we won't use the objc_type! macro
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct NSString(Obj);
 
 objc_instance_ptr!(NSError);
-objc_instance_ptr!(NSURL);
+objc_instance_ptr!(NSUrl, NSURL);
 objc_instance_ptr!(NSApplication);
 objc_instance_ptr!(NSWindow);
 objc_instance_ptr!(MTKView);
 objc_instance_ptr!(MTLRenderPassDescriptor);
 objc_instance_ptr!(CAMetalDrawable);
 objc_instance_ptr!(MTLRenderPipelineDescriptor);
+objc_instance_ptr!(MTLRenderPipelineColorAttachmentDescriptorArray);
+objc_instance_ptr!(MTLRenderPipelineColorAttachmentDescriptor);
 
 objc_protocol_ptr!(MTLDevice);
 objc_protocol_ptr!(MTLCommandQueue);
@@ -71,6 +74,8 @@ pub mod cls {
     objc_class!(MTLRenderPassDescriptor);
     objc_class!(CAMetalDrawable);
     objc_class!(MTLRenderPipelineDescriptor);
+    objc_class!(MTLRenderPipelineColorAttachmentDescriptorArray);
+    objc_class!(MTLRenderPipelineColorAttachmentDescriptor);
 }
 
 pub(super) mod sel {
@@ -100,10 +105,12 @@ pub(super) mod sel {
     // MKTView
     objc_sel!(initWithFrame_device_);
     objc_sel!(drawRect_);
-    objc_sel!(setClearColor_);
+    objc_prop_sel!(clearColor);
     objc_prop_sel!(currentRenderPassDescriptor);
     objc_prop_sel!(device);
     objc_prop_sel!(currentDrawable);
+    objc_prop_sel!(colorPixelFormat);
+    objc_prop_sel!(preferredFramesPerSecond);
 
     // MTLDevice
     objc_sel!(newCommandQueue);
@@ -119,22 +126,26 @@ pub(super) mod sel {
     objc_sel!(presentDrawable_);
     objc_sel!(commit);
 
-    // MTLCommandEncoder
+    // MTLRenderCommandEncoder
     objc_sel!(endEncoding);
+    objc_sel!(setRenderPipelineState_);
+    objc_sel!(setVertexBytes_length_atIndex_);
+    objc_sel!(setVertexBuffer_offset_atIndex_);
+    objc_sel!(drawPrimitives_vertexStart_vertexCount_);
 
     // MTLRenderPipelineDescriptor
     objc_prop_sel!(vertexFunction);
     objc_prop_sel!(fragmentFunction);
+    objc_prop_sel!(colorAttachments);
 
     // MTLLibrary
     objc_sel!(newFunctionWithName_);
 
-    objc_sel!(newRenderPipelineDescriptor);
-    objc_sel!(setVertexFunction_);
-    objc_sel!(setFragmentFunction_);
-    objc_sel!(setRenderPipelineState_);
-    objc_sel!(setVertexBuffer_offset_index_);
-    objc_sel!(drawPrimitives_vertexStart_vertexCount_);
+    // MTLRenderPipelineColorAttachmentDescriptorArray
+    objc_sel!(objectAtIndexedSubscript_);
+
+    // MTLRenderPipelineColorAttachmentDescriptor
+    objc_prop_sel!(pixelFormat);
 }
 
 pub fn init_objc() {
@@ -147,6 +158,8 @@ pub fn init_objc() {
     cls::MTLRenderPassDescriptor.init();
     cls::CAMetalDrawable.init();
     cls::MTLRenderPipelineDescriptor.init();
+    cls::MTLRenderPipelineColorAttachmentDescriptorArray.init();
+    cls::MTLRenderPipelineColorAttachmentDescriptor.init();
 
     sel::alloc.init();
     sel::init.init();
@@ -172,10 +185,12 @@ pub fn init_objc() {
     // MTKView
     sel::initWithFrame_device_.init();
     sel::drawRect_.init();
-    sel::setClearColor_.init();
+    objc_prop_sel_init!(clearColor);
     objc_prop_sel_init!(currentRenderPassDescriptor);
     objc_prop_sel_init!(device);
     objc_prop_sel_init!(currentDrawable);
+    objc_prop_sel_init!(colorPixelFormat);
+    objc_prop_sel_init!(preferredFramesPerSecond);
 
     // MTLDevice
     sel::newCommandQueue.init();
@@ -191,22 +206,26 @@ pub fn init_objc() {
     sel::presentDrawable_.init();
     sel::commit.init();
 
-    // MTLCommandEncoder
+    // MTLRenderCommandEncoder
     sel::endEncoding.init();
+    sel::setRenderPipelineState_.init();
+    sel::setVertexBytes_length_atIndex_.init();
+    sel::setVertexBuffer_offset_atIndex_.init();
+    sel::drawPrimitives_vertexStart_vertexCount_.init();
 
     // MTLRenderPipelineDescriptor
     objc_prop_sel_init!(vertexFunction);
     objc_prop_sel_init!(fragmentFunction);
+    objc_prop_sel_init!(colorAttachments);
 
     // MTLLibrary
     sel::newFunctionWithName_.init();
 
-    sel::newRenderPipelineDescriptor.init();
-    sel::setVertexFunction_.init();
-    sel::setFragmentFunction_.init();
-    sel::setRenderPipelineState_.init();
-    sel::setVertexBuffer_offset_index_.init();
-    sel::drawPrimitives_vertexStart_vertexCount_.init();
+    // MTLRenderPipelineColorAttachmentDescriptorArray
+    sel::objectAtIndexedSubscript_.init();
+
+    // MTLRenderPipelineColorAttachmentDescriptor
+    objc_prop_sel_init!(pixelFormat);
 }
 
 impl NSString {
@@ -354,7 +373,7 @@ impl NSWindow {
 
 #[repr(C)]
 #[derive(Debug)]
-struct MTLClearColor {
+pub struct MTLClearColor {
     red: f64,
     green: f64,
     blue: f64,
@@ -363,9 +382,17 @@ struct MTLClearColor {
 
 #[repr(i64)]
 #[derive(Debug)]
-enum MTLPrimitiveType {
+pub enum MTLPrimitiveType {
+    Point = 0,
+    Line = 1,
+    LineStrip = 2,
     Triangle = 3,
+    TriangleStrip = 4,
 }
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct MTLPixelFormat(NSUInteger);
 
 impl MTKView {
     pub fn override_draw_rect(f: extern "C" fn(MTKView, Sel, CGRect)) -> bool {
@@ -378,6 +405,8 @@ impl MTKView {
             )
         }
     }
+
+    objc_prop_impl!(clearColor, MTLClearColor, clear_color, set_clear_color);
 
     objc_prop_impl!(
         currentRenderPassDescriptor,
@@ -394,6 +423,19 @@ impl MTKView {
     );
 
     objc_prop_impl!(device, Option<MTLDevice>, device, set_device);
+    objc_prop_impl!(
+        colorPixelFormat,
+        MTLPixelFormat,
+        color_pixel_fmt,
+        set_color_pixel_fmt
+    );
+
+    objc_prop_impl!(
+        preferredFramesPerSecond,
+        NSInteger,
+        preferred_fps,
+        set_preferred_fps
+    );
 
     pub fn init(alloc: AllocObj<MTKView>, frame: CGRect, device: MTLDevice) -> Self {
         unsafe {
@@ -417,14 +459,14 @@ impl MTLDevice {
         unsafe { msg0::<Option<MTLCommandQueue>>(self.0, sel::newCommandQueue.sel()) }
     }
 
-    pub fn new_buf<T>(&self, bytes: &[T]) -> Option<MTLBuffer> {
+    pub fn new_buf<T>(&self, buf: &[T], options: MTLResourceOptions) -> Option<MTLBuffer> {
         unsafe {
             msg3::<Option<MTLBuffer>, *const u8, NSUInteger, MTLResourceOptions>(
                 self.0,
                 sel::newBufferWithBytes_length_options_.sel(),
-                bytes.as_ptr() as *const u8,
-                (bytes.len() * size_of::<T>()) as NSUInteger,
-                MTLResourceOptions::DEFAULT,
+                buf.as_ptr() as *const u8,
+                size_of_val(buf) as NSUInteger,
+                options,
             )
         }
     }
@@ -449,10 +491,10 @@ impl MTLDevice {
         }
     }
 
-    pub fn new_lib_with_url(&self, url: NSURL) -> Result<MTLLibrary, NSError> {
+    pub fn new_lib_with_url(&self, url: NSUrl) -> Result<MTLLibrary, NSError> {
         let mut error = None;
         let res = unsafe {
-            msg2::<Option<MTLLibrary>, NSURL, &mut Option<NSError>>(
+            msg2::<Option<MTLLibrary>, NSUrl, &mut Option<NSError>>(
                 self.0,
                 sel::newLibraryWithURL_error_.sel(),
                 url,
@@ -497,6 +539,53 @@ impl MTLCommandBuffer {
 }
 
 impl MTLRenderCommandEncoder {
+    pub fn set_rend_pl_state(&self, state: MTLRenderPipelineState) {
+        unsafe {
+            msg1::<(), MTLRenderPipelineState>(self.0, sel::setRenderPipelineState_.sel(), state)
+        }
+    }
+
+    pub fn set_vtex_bytes(&self, bytes: &[u8], index: usize) {
+        unsafe {
+            msg3::<(), *const u8, NSUInteger, NSUInteger>(
+                self.0,
+                sel::setVertexBytes_length_atIndex_.sel(),
+                bytes.as_ptr(),
+                bytes.len() as NSUInteger,
+                index as NSUInteger,
+            )
+        }
+    }
+
+    pub fn set_vtex_buf(&self, buf: MTLBuffer, offset: usize, index: usize) {
+        unsafe {
+            msg3::<(), MTLBuffer, NSUInteger, NSUInteger>(
+                self.0,
+                sel::setVertexBuffer_offset_atIndex_.sel(),
+                buf,
+                offset as NSUInteger,
+                index as NSUInteger,
+            )
+        }
+    }
+
+    pub fn draw_primitive(
+        &self,
+        primitive_type: MTLPrimitiveType,
+        vertex_start: usize,
+        vertex_count: usize,
+    ) {
+        unsafe {
+            msg3::<(), MTLPrimitiveType, NSUInteger, NSUInteger>(
+                self.0,
+                sel::drawPrimitives_vertexStart_vertexCount_.sel(),
+                primitive_type,
+                vertex_start as NSUInteger,
+                vertex_count as NSUInteger,
+            )
+        }
+    }
+
     pub fn end(&self) {
         unsafe { msg0::<()>(self.0, sel::endEncoding.sel()) }
     }
@@ -525,13 +614,19 @@ impl MTLRenderPipelineDescriptor {
 
     objc_prop_impl!(vertexFunction, MTLFunction, vtex_fn, set_vtex_fn);
     objc_prop_impl!(fragmentFunction, MTLFunction, frag_fn, set_frag_fn);
+    objc_prop_impl!(
+        colorAttachments,
+        MTLRenderPipelineColorAttachmentDescriptorArray,
+        color_attach,
+        set_color_attach
+    );
 }
 
-impl NSURL {
-    pub fn new(s: &CStr) -> NSURL {
+impl NSUrl {
+    pub fn new(s: &CStr) -> NSUrl {
         // SAFETY: OK.
         unsafe {
-            msg1::<NSURL, NSString>(
+            msg1::<NSUrl, NSString>(
                 cls::NSURL.obj(),
                 sel::URLWithString_.sel(),
                 NSString::new(s),
@@ -552,3 +647,43 @@ impl MTLLibrary {
         }
     }
 }
+
+impl MTLRenderPipelineColorAttachmentDescriptorArray {
+    pub fn at(&self, index: usize) -> MTLRenderPipelineColorAttachmentDescriptor {
+        // SAFETY: OK.
+        unsafe {
+            msg1::<MTLRenderPipelineColorAttachmentDescriptor, NSUInteger>(
+                self.0,
+                sel::objectAtIndexedSubscript_.sel(),
+                index as NSUInteger,
+            )
+        }
+    }
+}
+
+impl MTLRenderPipelineColorAttachmentDescriptor {
+    objc_prop_impl!(clearColor, MTLClearColor, clear_color, set_clear_color);
+    objc_prop_impl!(pixelFormat, MTLPixelFormat, pixel_fmt, set_pixel_fmt);
+}
+
+impl MTLRenderPassDescriptor {
+    objc_prop_impl!(
+        colorAttachments,
+        MTLRenderPipelineColorAttachmentDescriptorArray,
+        color_attach,
+        set_color_attach
+    );
+}
+
+impl MTLClearColor {
+    pub fn new(red: f64, green: f64, blue: f64, alpha: f64) -> MTLClearColor {
+        Self {
+            red,
+            green,
+            blue,
+            alpha,
+        }
+    }
+}
+
+impl MTLClearColor {}
