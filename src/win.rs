@@ -2,8 +2,9 @@ use crate::{
     error::OrDie,
     objc::{
         self, CGPoint, CGRect, CGSize, InstancePtr, MTKView, MTLBuffer, MTLCommandQueue, MTLDevice,
-        NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSString, NSWindow,
-        NSWindowStyleMask, Sel, StaticClsPtr, TypedIvar, TypedPtr, cls,
+        MTLRenderPipelineDescriptor, NSApplication, NSApplicationActivationPolicy,
+        NSBackingStoreType, NSString, NSURL, NSWindow, NSWindowStyleMask, Sel, StaticClsPtr,
+        TypedIvar, TypedPtr, cls,
     },
 };
 
@@ -195,6 +196,19 @@ fn init_mtl_pipeline() -> MTKView {
         .new_buf(&vtex)
         .or_die("new_buf: Failed to create vertex buffer");
     cview.vtex_buf.set(view.obj(), vtex_buf);
+
+    let desc = MTLRenderPipelineDescriptor::new();
+
+    let lib = device
+        .new_lib_with_url(NSURL::new(c"target/shaders.metallib"))
+        .or_die("new_lib_with_url: Failed to create library");
+
+    desc.set_vtex_fn(lib.new_fn(c"vertexShader"));
+    desc.set_frag_fn(lib.new_fn(c"fragmentShader"));
+
+    let rend_pl_state = device
+        .new_rend_pl_state(desc)
+        .or_die("new_rend_pl_state: Failed to create render pipeline state");
 
     view
 }

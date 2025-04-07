@@ -4,9 +4,9 @@ mod crimes;
 mod wrappers;
 
 pub use wrappers::{
-    CGPoint, CGRect, CGSize, MTKView, MTLBuffer, MTLCommandQueue, MTLDevice, NSApplication,
-    NSApplicationActivationPolicy, NSBackingStoreType, NSString, NSWindow, NSWindowStyleMask, cls,
-    init_objc,
+    CGPoint, CGRect, CGSize, MTKView, MTLBuffer, MTLCommandQueue, MTLDevice,
+    MTLRenderPipelineDescriptor, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType,
+    NSString, NSURL, NSWindow, NSWindowStyleMask, cls, init_objc,
 };
 
 pub use crimes::{

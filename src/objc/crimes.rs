@@ -92,6 +92,7 @@ pub unsafe fn add_method3<R, A0, A1, A2>(
     unsafe { class_addMethod(cls, sel, to_imp3(fn_ptr), CStrPtr::new(types)) }
 }
 
+#[derive(Debug)]
 pub struct NamedStaticPtr {
     name: &'static CStr,
     ptr: AtomicPtr<c_void>,
@@ -121,6 +122,7 @@ impl NamedStaticPtr {
 
     pub fn obj(&self) -> Obj {
         let ptr = self.ptr.load(Ordering::Relaxed);
+        debug_assert!(ptr != null_mut(), "{:?} is uninitialized!", self.name);
         Obj::new(ptr)
     }
 }
@@ -246,6 +248,7 @@ impl Cls {
 #[repr(transparent)]
 pub struct Sel(Obj);
 
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct StaticClsPtr(NamedStaticPtr);
 
@@ -255,7 +258,7 @@ impl StaticClsPtr {
     }
 
     pub fn cls(&self) -> Cls {
-        Cls(self.0.obj())
+        Cls(self.obj())
     }
 
     pub fn obj(&self) -> Obj {
@@ -426,7 +429,7 @@ macro_rules! objc_prop_sel_init {
     };
 }
 
-macro_rules! objc_prop {
+macro_rules! objc_prop_impl {
     ( $prop:ident, $prop_type:ty, $getter:ident, $setter:ident ) => {
         pub fn $getter(&self) -> $prop_type {
             unsafe { msg0::<$prop_type>(self.0, sel::$prop::GETTER.sel()) }
@@ -492,7 +495,7 @@ pub trait InstancePtr: TypedPtr {
 pub(crate) use c_stringify;
 pub(crate) use objc_class;
 pub(crate) use objc_instance_ptr;
-pub(crate) use objc_prop;
+pub(crate) use objc_prop_impl;
 pub(crate) use objc_prop_sel;
 pub(crate) use objc_prop_sel_init;
 pub(crate) use objc_protocol_ptr;
