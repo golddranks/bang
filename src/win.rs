@@ -10,20 +10,20 @@ use crate::{
 };
 
 extern "C" fn window_should_close_override(_slf: NSWindow, _sel: Sel, sender: Obj) -> bool {
-    println!("Window closed! {:?} {:?}", _slf, sender);
+    println!("Window closed!");
     NSApplication::shared().stop(sender);
     true
 }
 
-struct MyMTKViewDelegate {
+#[derive(Debug)]
+struct DrawState {
     cmd_queue: MTLCommandQueue,
     vtex_buf: MTLBuffer,
     rend_pl_state: MTLRenderPipelineState,
     frame: usize,
 }
 
-extern "C" fn draw(dele: TypedMTKViewDelegate<MyMTKViewDelegate>, _sel: Sel, view: MTKView) {
-    dbg!("here we are");
+extern "C" fn draw(mut dele: TypedMTKViewDelegate<DrawState>, _sel: Sel, view: MTKView) {
     let this = dele.get_inner();
 
     let phase = this.frame % 100;
@@ -37,7 +37,7 @@ extern "C" fn draw(dele: TypedMTKViewDelegate<MyMTKViewDelegate>, _sel: Sel, vie
     pass_desc
         .color_attach()
         .at(0)
-        .set_clear_color(MTLClearColor::new(0.0, color_phase, 0.0, 1.0));
+        .set_clear_color(MTLClearColor::new(color_phase, 0.0, 0.0, 1.0));
     let cmd_buf = this.cmd_queue.cmd_buf().or_die("cmd_buf");
 
     let rencoder = cmd_buf.rencoder_with_desc(pass_desc).or_die("rencoder");
@@ -54,7 +54,7 @@ extern "C" fn draw(dele: TypedMTKViewDelegate<MyMTKViewDelegate>, _sel: Sel, vie
 }
 
 extern "C" fn size_change(
-    _slf: TypedMTKViewDelegate<MyMTKViewDelegate>,
+    _slf: TypedMTKViewDelegate<DrawState>,
     _sel: Sel,
     _view: MTKView,
     _size: CGSize,
@@ -62,9 +62,9 @@ extern "C" fn size_change(
     dbg!("size change called?!");
 }
 
-impl MyMTKViewDelegate {
-    fn init() -> TypedMTKViewDelegateCls<MyMTKViewDelegate> {
-        TypedMTKViewDelegateCls::init(c"MyMTKViewDelegate", draw, size_change)
+impl DrawState {
+    fn init_delegate_cls() -> TypedMTKViewDelegateCls<DrawState> {
+        TypedMTKViewDelegateCls::init(c"MTKViewDelegateWithDrawState", draw, size_change)
     }
 
     fn new(device: MTLDevice, pixel_fmt: MTLPixelFormat) -> Self {
@@ -110,7 +110,7 @@ pub fn init() {
     objc::init_objc();
 
     NSWindow::override_window_should_close(window_should_close_override);
-    let dele_cls = MyMTKViewDelegate::init();
+    let dele_cls = DrawState::init_delegate_cls();
 
     let app = NSApplication::shared();
     app.set_activation_policy(NSApplicationActivationPolicy::Regular);
@@ -135,12 +135,9 @@ pub fn init() {
 
     let alloc = MTKView::alloc();
     let view = MTKView::init(alloc, rect, device);
-    let dele = MyMTKViewDelegate::new(device, view.color_pixel_fmt());
-    let dele = dele_cls.new_untyped(dele);
+    let dele = DrawState::new(device, view.color_pixel_fmt());
     view.set_preferred_fps(120);
-    dbg!("here we are");
-    view.set_delegate(dele);
-    dbg!("here we are");
+    view.set_delegate(dele_cls.new_untyped(dele));
 
     win.set_content_view(view);
     win.set_title(title);

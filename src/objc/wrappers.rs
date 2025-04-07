@@ -714,7 +714,7 @@ impl<T> crate::objc::TypedPtr for TypedMTKViewDelegate<T> {
 }
 
 impl<T> TypedMTKViewDelegate<T> {
-    pub fn get_inner(&self) -> &mut T {
+    pub fn get_inner(&mut self) -> &mut T {
         unsafe { &mut *self.0.get_index_ivars() }
     }
 
@@ -723,7 +723,7 @@ impl<T> TypedMTKViewDelegate<T> {
     }
 }
 
-impl<T> TypedMTKViewDelegateCls<T> {
+impl<T: Debug> TypedMTKViewDelegateCls<T> {
     pub fn init(
         name: &CStr,
         draw: extern "C" fn(TypedMTKViewDelegate<T>, _sel: Sel, _view: MTKView),
@@ -734,7 +734,7 @@ impl<T> TypedMTKViewDelegateCls<T> {
             _size: CGSize,
         ),
     ) -> Self {
-        let cls = make_class::<T>(name);
+        let cls = make_class(name).or_die("make_class: failed");
         unsafe {
             cls.add_method1(sel::drawInMTKView_.sel(), draw, c"v@:@")
                 .or_die("add_method: failed adding drawInMTKView_");
@@ -751,8 +751,11 @@ impl<T> TypedMTKViewDelegateCls<T> {
     }
 
     pub fn new_untyped(self, inner: T) -> MTKViewDelegate {
-        let alloc = unsafe { self.0.alloc::<TypedMTKViewDelegate<T>>() };
-        let dele = TypedMTKViewDelegate::init(alloc);
+        let alloc = unsafe {
+            self.0
+                .alloc_indexed::<TypedMTKViewDelegate<T>>(size_of::<T>())
+        };
+        let mut dele = TypedMTKViewDelegate::init(alloc);
         let new_inner = dele.get_inner();
         *new_inner = inner;
         MTKViewDelegate(dele.0)

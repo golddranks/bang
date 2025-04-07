@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-use crate::error::OrDie;
 use std::{
     ffi::{CStr, CString, c_char, c_double, c_longlong, c_ulonglong, c_void},
     marker::PhantomData,
@@ -18,6 +17,7 @@ pub type CGFloat = c_double;
 
 // SAFETY: OK. each of the extern function signatures are carefully checked and thought of
 unsafe extern "C" {
+    safe fn class_createInstance(cls: Cls, extra_bytes: usize) -> Obj;
     safe fn class_addProtocol(cls: Cls, protocol: CStrPtr) -> bool;
     safe fn object_getIndexedIvars(obj: Obj) -> *const c_void;
     safe fn object_getIvar(obj: Obj, ivar: Ivar) -> Obj;
@@ -179,7 +179,7 @@ impl Obj {
         Obj(NonNull::new(ptr).expect("CALLER BUG: must be called with non-null pointer"))
     }
 
-    pub unsafe fn get_index_ivars<T>(&self) -> &mut T {
+    pub unsafe fn get_index_ivars<T>(&mut self) -> &mut T {
         let ptr = object_getIndexedIvars(*self) as *mut T;
         unsafe { &mut *ptr }
     }
@@ -283,6 +283,10 @@ impl Cls {
     // i.e. that the self Cls object is a subclass of T's Cls
     pub unsafe fn alloc<T>(self) -> AllocObj<T> {
         unsafe { msg0::<AllocObj<T>>(self.obj(), super::wrappers::sel::alloc.sel()) }
+    }
+
+    pub unsafe fn alloc_indexed<T>(self, extra_bytes: usize) -> AllocObj<T> {
+        AllocObj(class_createInstance(self, extra_bytes), PhantomData)
     }
 }
 
@@ -546,12 +550,7 @@ pub(crate) use objc_prop_sel_init;
 pub(crate) use objc_protocol_ptr;
 pub(crate) use objc_sel;
 
-pub fn make_class<T>(name: &CStr) -> Cls {
-    let cls = objc_allocateClassPair(
-        super::cls::NSObject.cls(),
-        CStrPtr::new(name),
-        size_of::<T>(),
-    )
-    .or_die("UNREACHABLE");
-    cls.register()
+pub fn make_class(name: &CStr) -> Option<Cls> {
+    let cls = objc_allocateClassPair(super::cls::NSObject.cls(), CStrPtr::new(name), 0)?;
+    Some(cls.register())
 }
