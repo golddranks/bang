@@ -3,21 +3,25 @@ use std::ffi::CString;
 use crate::{
     error::OrDie,
     objc::{
-        CGSize, MTKView, MTLBuffer, MTLClearColor, MTLCommandQueue, MTLCompileOptions, MTLDevice,
-        MTLPixelFormat, MTLPrimitiveType, MTLRenderPipelineDescriptor, MTLRenderPipelineState,
-        MTLResourceOptions, NSString, NSUrl, Sel, TypedMTKViewDelegate, TypedMTKViewDelegateCls,
+        Sel, TypedCls, TypedObj,
+        wrappers::{
+            CGSize, MTKView, MTKViewDelegate, MTLBuffer, MTLClearColor, MTLCommandQueue,
+            MTLCompileOptions, MTLDevice, MTLPixelFormat, MTLPrimitiveType,
+            MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, NSString,
+            NSUrl,
+        },
     },
 };
 
 #[derive(Debug)]
 pub struct DrawState {
-    cmd_queue: MTLCommandQueue,
-    vtex_buf: MTLBuffer,
-    rend_pl_state: MTLRenderPipelineState,
+    cmd_queue: MTLCommandQueue::PPtr,
+    vtex_buf: MTLBuffer::PPtr,
+    rend_pl_state: MTLRenderPipelineState::PPtr,
     frame: usize,
 }
 
-extern "C" fn draw(mut dele: TypedMTKViewDelegate<DrawState>, _sel: Sel, view: MTKView) {
+extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr) {
     let state = dele.get_inner();
 
     let phase = state.frame % 100;
@@ -48,20 +52,22 @@ extern "C" fn draw(mut dele: TypedMTKViewDelegate<DrawState>, _sel: Sel, view: M
 }
 
 extern "C" fn size_change(
-    _slf: TypedMTKViewDelegate<DrawState>,
+    _slf: TypedObj<DrawState>,
     _sel: Sel,
-    _view: MTKView,
+    _view: MTKView::IPtr,
     _size: CGSize,
 ) {
     dbg!("size change called?!");
 }
 
 impl DrawState {
-    pub fn init_delegate_cls() -> TypedMTKViewDelegateCls<DrawState> {
-        TypedMTKViewDelegateCls::init(c"MTKViewDelegateWithDrawState", draw, size_change)
+    pub fn init_delegate_cls() -> TypedCls<DrawState, MTKViewDelegate::PPtr> {
+        let cls = TypedCls::init(c"MTKViewDelegateWithDrawState").or_die("UNREACHABLE");
+        MTKViewDelegate::PPtr::implement(&cls, draw, size_change);
+        cls
     }
 
-    pub fn new(device: MTLDevice, pixel_fmt: MTLPixelFormat) -> Self {
+    pub fn new(device: MTLDevice::PPtr, pixel_fmt: MTLPixelFormat) -> Self {
         let cmd_queue = device
             .new_cmd_queue()
             .or_die("new_cmd_queue: Failed to create command queue");
@@ -75,16 +81,17 @@ impl DrawState {
             .new_buf(&vtex, MTLResourceOptions::DEFAULT)
             .or_die("new_buf: Failed to create vertex buffer");
 
-        let desc = MTLRenderPipelineDescriptor::new();
+        let desc = MTLRenderPipelineDescriptor::IPtr::new();
 
         let mut source =
             std::fs::read_to_string("src/shaders.metal").or_die("Failed to read shader source");
         source.push('\0');
-        let source =
-            NSString::new(&CString::from_vec_with_nul(source.into_bytes()).expect("UNREACHABLE"));
-        let options = MTLCompileOptions::new();
+        let source = NSString::IPtr::new(
+            &CString::from_vec_with_nul(source.into_bytes()).expect("UNREACHABLE"),
+        );
+        let options = MTLCompileOptions::IPtr::new();
 
-        let lib = match device.new_lib_with_url(NSUrl::new(c"target/shaders.metallib")) {
+        let lib = match device.new_lib_with_url(NSUrl::IPtr::new(c"target/shaders.metallib")) {
             Ok(lib) => lib,
             Err(_) => {
                 eprintln!("Couldn't find precompiled shaders, compiling from source...");

@@ -1,14 +1,12 @@
 #![allow(dead_code)]
-use std::{ffi::CStr, fmt::Debug, marker::PhantomData, ops::BitOr};
+use std::{ffi::CStr, fmt::Debug, ops::BitOr};
 
-use crate::{error::OrDie, objc::crimes::objc_prop_sel_init};
+use crate::objc::crimes::objc_prop_sel_init;
 
-use super::{
-    AllocObj, InstancePtr,
-    crimes::{
-        Bool, CGFloat, CStrPtr, Cls, NSInteger, NSUInteger, Obj, Ptr, Sel, make_class, msg0, msg1,
-        msg2, msg3, msg4, objc_instance_ptr, objc_prop_impl, objc_protocol_ptr,
-    },
+use super::crimes::{
+    AllocObj, Bool, CGFloat, CStrPtr, NSInteger, NSUInteger, OPtr, Protocol, Ptr, Sel, TypedCls,
+    TypedObj, init, init_objc_core, msg0, msg1, msg2, msg3, msg4, objc_class, objc_prop_impl,
+    objc_protocol,
 };
 
 unsafe extern "C" {
@@ -36,60 +34,42 @@ pub struct CGRect {
     pub size: CGSize,
 }
 
-// Custom Debug impl, so we won't use the objc_type! macro
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct NSString(Obj);
+objc_class!(NSString, NSString, (Clone, Copy));
+objc_class!(NSError);
+objc_class!(NSUrl, NSURL, (Debug, Clone, Copy));
+objc_class!(NSApplication);
+objc_class!(NSWindow);
+objc_class!(MTKView);
+objc_class!(MTLRenderPassDescriptor);
+objc_class!(CAMetalDrawable);
+objc_class!(MTLRenderPipelineDescriptor);
+objc_class!(MTLRenderPipelineColorAttachmentDescriptorArray);
+objc_class!(MTLRenderPipelineColorAttachmentDescriptor);
+objc_class!(MTLCompileOptions);
 
-objc_instance_ptr!(NSObject);
-objc_instance_ptr!(NSError);
-objc_instance_ptr!(NSUrl, NSURL);
-objc_instance_ptr!(NSApplication);
-objc_instance_ptr!(NSWindow);
-objc_instance_ptr!(MTKView);
-objc_instance_ptr!(MTLRenderPassDescriptor);
-objc_instance_ptr!(CAMetalDrawable);
-objc_instance_ptr!(MTLRenderPipelineDescriptor);
-objc_instance_ptr!(MTLRenderPipelineColorAttachmentDescriptorArray);
-objc_instance_ptr!(MTLRenderPipelineColorAttachmentDescriptor);
-objc_instance_ptr!(MTLCompileOptions);
-
-objc_protocol_ptr!(MTLDevice);
-objc_protocol_ptr!(MTLCommandQueue);
-objc_protocol_ptr!(MTLCommandBuffer);
-objc_protocol_ptr!(MTLRenderCommandEncoder);
-objc_protocol_ptr!(MTLBuffer);
-objc_protocol_ptr!(MTLRenderPipelineState);
-objc_protocol_ptr!(MTLLibrary);
-objc_protocol_ptr!(MTLFunction);
-objc_protocol_ptr!(MTKViewDelegate);
-
-pub mod cls {
-    use crate::objc::crimes::objc_class;
-
-    objc_class!(NSObject);
-    objc_class!(NSURL);
-    objc_class!(NSString);
-    objc_class!(NSError);
-    objc_class!(NSApplication);
-    objc_class!(NSWindow);
-    objc_class!(MTKView);
-    objc_class!(MTLRenderPassDescriptor);
-    objc_class!(CAMetalDrawable);
-    objc_class!(MTLRenderPipelineDescriptor);
-    objc_class!(MTLRenderPipelineColorAttachmentDescriptorArray);
-    objc_class!(MTLRenderPipelineColorAttachmentDescriptor);
-    objc_class!(MTLCompileOptions);
-}
+objc_protocol!(MTLDevice);
+objc_protocol!(MTLCommandQueue);
+objc_protocol!(MTLCommandBuffer);
+objc_protocol!(MTLRenderCommandEncoder);
+objc_protocol!(MTLBuffer);
+objc_protocol!(MTLRenderPipelineState);
+objc_protocol!(MTLLibrary);
+objc_protocol!(MTLFunction);
+objc_protocol!(MTKViewDelegate);
+objc_protocol!(NSWindowDelegate);
 
 pub mod sel {
     use crate::objc::crimes::{objc_prop_sel, objc_sel};
 
-    objc_sel!(alloc);
-    objc_sel!(init);
-    objc_sel!(stringWithUTF8String_);
+    // misc
+    objc_prop_sel!(delegate);
+
+    // NSString
     objc_sel!(URLWithString_);
     objc_sel!(UTF8String);
+
+    // NSUrl
+    objc_sel!(stringWithUTF8String_);
 
     // NSApplication
     objc_sel!(sharedApplication);
@@ -109,7 +89,6 @@ pub mod sel {
     // MKTView
     objc_sel!(initWithFrame_device_);
     objc_sel!(drawRect_);
-    objc_prop_sel!(delegate);
     objc_prop_sel!(clearColor);
     objc_prop_sel!(currentRenderPassDescriptor);
     objc_prop_sel!(device);
@@ -159,25 +138,27 @@ pub mod sel {
 }
 
 pub fn init_objc() {
-    cls::NSObject.init();
-    cls::NSURL.init();
-    cls::NSString.init();
-    cls::NSError.init();
-    cls::NSApplication.init();
-    cls::NSWindow.init();
-    cls::MTKView.init();
-    cls::MTLRenderPassDescriptor.init();
-    cls::CAMetalDrawable.init();
-    cls::MTLRenderPipelineDescriptor.init();
-    cls::MTLRenderPipelineColorAttachmentDescriptorArray.init();
-    cls::MTLRenderPipelineColorAttachmentDescriptor.init();
-    cls::MTLCompileOptions.init();
+    init_objc_core();
 
-    sel::alloc.init();
-    sel::init.init();
+    NSString::init();
+    NSUrl::init();
+    NSError::init();
+    NSApplication::init();
+    NSWindow::init();
+    MTKView::init();
+    MTLRenderPassDescriptor::init();
+    CAMetalDrawable::init();
+    MTLRenderPipelineDescriptor::init();
+    MTLRenderPipelineColorAttachmentDescriptorArray::init();
+    MTLRenderPipelineColorAttachmentDescriptor::init();
+    MTLCompileOptions::init();
+
+    // NSString
     sel::stringWithUTF8String_.init();
-    sel::URLWithString_.init();
     sel::UTF8String.init();
+
+    // NSUrl
+    sel::URLWithString_.init();
 
     // NSApplication
     sel::sharedApplication.init();
@@ -246,40 +227,40 @@ pub fn init_objc() {
     objc_prop_sel_init!(pixelFormat);
 }
 
-impl NSString {
-    pub fn new(s: &CStr) -> NSString {
+impl NSString::IPtr {
+    pub fn new(s: &CStr) -> NSString::IPtr {
         // SAFETY: OK.
         unsafe {
-            msg1::<NSString, CStrPtr>(
-                cls::NSString.obj(),
+            msg1::<NSString::IPtr, CStrPtr>(
+                NSString::obj(),
                 sel::stringWithUTF8String_.sel(),
                 CStrPtr::new(s),
             )
         }
     }
 
-    pub fn as_str(&self) -> &CStr {
+    pub fn as_cstr(&self) -> &CStr {
         // SAFETY: OK. the CStrPtr lifetime is constrained by the output &CStr, which is constrained by &self
         unsafe { msg0::<CStrPtr>(self.0, sel::UTF8String.sel()) }.to_cstr()
     }
 }
 
-impl Debug for NSString {
+impl Debug for NSString::IPtr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.as_str().fmt(f)
+        self.as_cstr().fmt(f)
     }
 }
 
 #[test]
 fn test_ns_string() {
     init_objc();
-    let s = NSString::new(c"huhheiやー");
-    assert_eq!(s.as_str(), c"huhheiやー");
+    let s = NSString::IPtr::new(c"huhheiやー");
+    assert_eq!(s.as_cstr(), c"huhheiやー");
 }
 
-impl NSApplication {
-    pub fn shared() -> NSApplication {
-        unsafe { msg0::<NSApplication>(cls::NSApplication.obj(), sel::sharedApplication.sel()) }
+impl NSApplication::IPtr {
+    pub fn shared() -> NSApplication::IPtr {
+        unsafe { msg0::<NSApplication::IPtr>(NSApplication::obj(), sel::sharedApplication.sel()) }
     }
 
     pub fn set_activation_policy(&self, policy: NSApplicationActivationPolicy) {
@@ -296,8 +277,8 @@ impl NSApplication {
         unsafe { msg0::<()>(self.0, sel::run.sel()) };
     }
 
-    pub fn stop(&self, sender: Obj) {
-        unsafe { msg1::<(), Obj>(self.0, sel::stop_.sel(), sender) };
+    pub fn stop(&self, sender: OPtr) {
+        unsafe { msg1::<(), OPtr>(self.0, sel::stop_.sel(), sender) };
     }
 }
 
@@ -345,25 +326,23 @@ fn test_mem_layout() {
     assert_eq!(align_of::<NSBackingStoreType>(), align_of::<NSUInteger>());
 }
 
-impl NSWindow {
-    pub fn override_window_should_close(f: extern "C" fn(NSWindow, Sel, Obj) -> Bool) {
+impl NSWindow::IPtr {
+    pub fn override_window_should_close(f: extern "C" fn(NSWindow::IPtr, Sel, OPtr) -> Bool) {
         unsafe {
-            cls::NSWindow
-                .cls()
-                .add_method1(sel::windowShouldClose_.sel(), f, c"c@:@");
+            NSWindow::cls().add_method1(sel::windowShouldClose_.sel(), f, c"c@:@");
         }
     }
 
     pub fn init(
-        alloc: AllocObj<NSWindow>,
+        alloc_obj: AllocObj<NSWindow::IPtr>,
         rect: CGRect,
         style_mask: NSWindowStyleMask,
         backing: NSBackingStoreType,
         defer: bool,
-    ) -> NSWindow {
+    ) -> NSWindow::IPtr {
         unsafe {
-            msg4::<NSWindow, CGRect, NSWindowStyleMask, NSBackingStoreType, Bool>(
-                alloc.obj(),
+            msg4::<NSWindow::IPtr, CGRect, NSWindowStyleMask, NSBackingStoreType, Bool>(
+                alloc_obj.obj(),
                 sel::initWithContentRect_styleMask_backing_defer_.sel(),
                 rect,
                 style_mask,
@@ -381,9 +360,10 @@ impl NSWindow {
         unsafe { msg0::<()>(self.0, sel::center.sel()) };
     }
 
-    objc_prop_impl!(title, NSString, title, set_title);
+    objc_prop_impl!(delegate, NSWindowDelegate::PPtr, delegate, set_delegate);
+    objc_prop_impl!(title, NSString::IPtr, title, set_title);
     objc_prop_impl!(isVisible, bool, is_visible, set_is_visible);
-    objc_prop_impl!(contentView, MTKView, content_view, set_content_view);
+    objc_prop_impl!(contentView, MTKView::IPtr, content_view, set_content_view);
 }
 
 #[repr(C)]
@@ -409,10 +389,10 @@ pub enum MTLPrimitiveType {
 #[repr(transparent)]
 pub struct MTLPixelFormat(NSUInteger);
 
-impl MTKView {
-    pub fn override_draw_rect(f: extern "C" fn(MTKView, Sel, CGRect)) -> bool {
+impl MTKView::IPtr {
+    pub fn override_draw_rect(f: extern "C" fn(MTKView::IPtr, Sel, CGRect)) -> bool {
         unsafe {
-            cls::MTKView.cls().add_method1(
+            MTKView::cls().add_method1(
                 sel::drawRect_.sel(),
                 f,
                 c"v@:{CGRect={CGPoint=dd}{CGSize=dd}}",
@@ -420,24 +400,24 @@ impl MTKView {
         }
     }
 
-    objc_prop_impl!(delegate, MTKViewDelegate, delegate, set_delegate);
+    objc_prop_impl!(delegate, MTKViewDelegate::PPtr, delegate, set_delegate);
     objc_prop_impl!(clearColor, MTLClearColor, clear_color, set_clear_color);
 
     objc_prop_impl!(
         currentRenderPassDescriptor,
-        Option<MTLRenderPassDescriptor>,
+        Option<MTLRenderPassDescriptor::IPtr>,
         current_rendpass_desc,
         set_current_rendpass_desc
     );
 
     objc_prop_impl!(
         currentDrawable,
-        Option<CAMetalDrawable>,
+        Option<CAMetalDrawable::IPtr>,
         current_drawable,
         set_current_drawable
     );
 
-    objc_prop_impl!(device, Option<MTLDevice>, device, set_device);
+    objc_prop_impl!(device, Option<MTLDevice::PPtr>, device, set_device);
     objc_prop_impl!(
         colorPixelFormat,
         MTLPixelFormat,
@@ -452,10 +432,14 @@ impl MTKView {
         set_preferred_fps
     );
 
-    pub fn init(alloc: AllocObj<MTKView>, frame: CGRect, device: MTLDevice) -> Self {
+    pub fn init(
+        alloc_obj: AllocObj<MTKView::IPtr>,
+        frame: CGRect,
+        device: MTLDevice::PPtr,
+    ) -> Self {
         unsafe {
-            msg2::<MTKView, CGRect, MTLDevice>(
-                alloc.obj(),
+            msg2::<MTKView::IPtr, CGRect, MTLDevice::PPtr>(
+                alloc_obj.obj(),
                 sel::initWithFrame_device_.sel(),
                 frame,
                 device,
@@ -464,19 +448,19 @@ impl MTKView {
     }
 }
 
-impl MTLDevice {
-    pub fn get_default() -> MTLDevice {
+impl MTLDevice::PPtr {
+    pub fn get_default() -> MTLDevice::PPtr {
         let ptr = MTLCreateSystemDefaultDevice();
-        MTLDevice(Obj::new(ptr))
+        Self(OPtr::new(ptr))
     }
 
-    pub fn new_cmd_queue(&self) -> Option<MTLCommandQueue> {
-        unsafe { msg0::<Option<MTLCommandQueue>>(self.0, sel::newCommandQueue.sel()) }
+    pub fn new_cmd_queue(&self) -> Option<MTLCommandQueue::PPtr> {
+        unsafe { msg0::<Option<MTLCommandQueue::PPtr>>(self.0, sel::newCommandQueue.sel()) }
     }
 
-    pub fn new_buf<T>(&self, buf: &[T], options: MTLResourceOptions) -> Option<MTLBuffer> {
+    pub fn new_buf<T>(&self, buf: &[T], options: MTLResourceOptions) -> Option<MTLBuffer::PPtr> {
         unsafe {
-            msg3::<Option<MTLBuffer>, *const u8, NSUInteger, MTLResourceOptions>(
+            msg3::<Option<MTLBuffer::PPtr>, *const u8, NSUInteger, MTLResourceOptions>(
                 self.0,
                 sel::newBufferWithBytes_length_options_.sel(),
                 buf.as_ptr() as *const u8,
@@ -488,11 +472,15 @@ impl MTLDevice {
 
     pub fn new_rend_pl_state(
         &self,
-        desc: MTLRenderPipelineDescriptor,
-    ) -> Result<MTLRenderPipelineState, NSError> {
+        desc: MTLRenderPipelineDescriptor::IPtr,
+    ) -> Result<MTLRenderPipelineState::PPtr, NSError::IPtr> {
         let mut error = None;
         let res = unsafe {
-            msg2::<Option<MTLRenderPipelineState>, MTLRenderPipelineDescriptor, &mut Option<NSError>>(
+            msg2::<
+                Option<MTLRenderPipelineState::PPtr>,
+                MTLRenderPipelineDescriptor::IPtr,
+                &mut Option<NSError::IPtr>,
+            >(
                 self.0,
                 sel::newRenderPipelineStateWithDescriptor_error_.sel(),
                 desc,
@@ -506,10 +494,10 @@ impl MTLDevice {
         }
     }
 
-    pub fn new_lib_with_url(&self, url: NSUrl) -> Result<MTLLibrary, NSError> {
+    pub fn new_lib_with_url(&self, url: NSUrl::IPtr) -> Result<MTLLibrary::PPtr, NSError::IPtr> {
         let mut error = None;
         let res = unsafe {
-            msg2::<Option<MTLLibrary>, NSUrl, &mut Option<NSError>>(
+            msg2::<Option<MTLLibrary::PPtr>, NSUrl::IPtr, &mut Option<NSError::IPtr>>(
                 self.0,
                 sel::newLibraryWithURL_error_.sel(),
                 url,
@@ -525,12 +513,17 @@ impl MTLDevice {
 
     pub fn new_lib_from_source(
         &self,
-        source: NSString,
-        options: MTLCompileOptions,
-    ) -> Result<MTLLibrary, NSError> {
+        source: NSString::IPtr,
+        options: MTLCompileOptions::IPtr,
+    ) -> Result<MTLLibrary::PPtr, NSError::IPtr> {
         let mut error = None;
         let res = unsafe {
-            msg3::<Option<MTLLibrary>, NSString, MTLCompileOptions, &mut Option<NSError>>(
+            msg3::<
+                Option<MTLLibrary::PPtr>,
+                NSString::IPtr,
+                MTLCompileOptions::IPtr,
+                &mut Option<NSError::IPtr>,
+            >(
                 self.0,
                 sel::newLibraryWithSource_options_error_.sel(),
                 source,
@@ -546,19 +539,19 @@ impl MTLDevice {
     }
 }
 
-impl MTLCommandQueue {
-    pub fn cmd_buf(&self) -> Option<MTLCommandBuffer> {
-        unsafe { msg0::<Option<MTLCommandBuffer>>(self.0, sel::commandBuffer.sel()) }
+impl MTLCommandQueue::PPtr {
+    pub fn cmd_buf(&self) -> Option<MTLCommandBuffer::PPtr> {
+        unsafe { msg0::<Option<MTLCommandBuffer::PPtr>>(self.0, sel::commandBuffer.sel()) }
     }
 }
 
-impl MTLCommandBuffer {
+impl MTLCommandBuffer::PPtr {
     pub fn rencoder_with_desc(
         &self,
-        pass_desc: MTLRenderPassDescriptor,
-    ) -> Option<MTLRenderCommandEncoder> {
+        pass_desc: MTLRenderPassDescriptor::IPtr,
+    ) -> Option<MTLRenderCommandEncoder::PPtr> {
         unsafe {
-            msg1::<Option<MTLRenderCommandEncoder>, MTLRenderPassDescriptor>(
+            msg1::<Option<MTLRenderCommandEncoder::PPtr>, MTLRenderPassDescriptor::IPtr>(
                 self.0,
                 sel::renderCommandEncoderWithDescriptor_.sel(),
                 pass_desc,
@@ -566,8 +559,8 @@ impl MTLCommandBuffer {
         }
     }
 
-    pub fn present_drawable(&self, drawable: CAMetalDrawable) {
-        unsafe { msg1::<(), CAMetalDrawable>(self.0, sel::presentDrawable_.sel(), drawable) }
+    pub fn present_drawable(&self, drawable: CAMetalDrawable::IPtr) {
+        unsafe { msg1::<(), CAMetalDrawable::IPtr>(self.0, sel::presentDrawable_.sel(), drawable) }
     }
 
     pub fn commit(&self) {
@@ -575,10 +568,14 @@ impl MTLCommandBuffer {
     }
 }
 
-impl MTLRenderCommandEncoder {
-    pub fn set_rend_pl_state(&self, state: MTLRenderPipelineState) {
+impl MTLRenderCommandEncoder::PPtr {
+    pub fn set_rend_pl_state(&self, state: MTLRenderPipelineState::PPtr) {
         unsafe {
-            msg1::<(), MTLRenderPipelineState>(self.0, sel::setRenderPipelineState_.sel(), state)
+            msg1::<(), MTLRenderPipelineState::PPtr>(
+                self.0,
+                sel::setRenderPipelineState_.sel(),
+                state,
+            )
         }
     }
 
@@ -594,9 +591,9 @@ impl MTLRenderCommandEncoder {
         }
     }
 
-    pub fn set_vtex_buf(&self, buf: MTLBuffer, offset: usize, index: usize) {
+    pub fn set_vtex_buf(&self, buf: MTLBuffer::PPtr, offset: usize, index: usize) {
         unsafe {
-            msg3::<(), MTLBuffer, NSUInteger, NSUInteger>(
+            msg3::<(), MTLBuffer::PPtr, NSUInteger, NSUInteger>(
                 self.0,
                 sel::setVertexBuffer_offset_atIndex_.sel(),
                 buf,
@@ -643,53 +640,53 @@ impl BitOr for MTLResourceOptions {
     }
 }
 
-impl MTLRenderPipelineDescriptor {
+impl MTLRenderPipelineDescriptor::IPtr {
     pub fn new() -> Self {
-        let alloc = MTLRenderPipelineDescriptor::alloc();
-        unsafe { msg0::<MTLRenderPipelineDescriptor>(alloc.obj(), sel::init.sel()) }
+        let alloc_obj = MTLRenderPipelineDescriptor::alloc();
+        unsafe { msg0::<MTLRenderPipelineDescriptor::IPtr>(alloc_obj.obj(), init.sel()) }
     }
 
-    objc_prop_impl!(vertexFunction, MTLFunction, vtex_fn, set_vtex_fn);
-    objc_prop_impl!(fragmentFunction, MTLFunction, frag_fn, set_frag_fn);
+    objc_prop_impl!(vertexFunction, MTLFunction::PPtr, vtex_fn, set_vtex_fn);
+    objc_prop_impl!(fragmentFunction, MTLFunction::PPtr, frag_fn, set_frag_fn);
     objc_prop_impl!(
         colorAttachments,
-        MTLRenderPipelineColorAttachmentDescriptorArray,
+        MTLRenderPipelineColorAttachmentDescriptorArray::IPtr,
         color_attach,
         set_color_attach
     );
 }
 
-impl NSUrl {
-    pub fn new(s: &CStr) -> NSUrl {
+impl NSUrl::IPtr {
+    pub fn new(s: &CStr) -> NSUrl::IPtr {
         // SAFETY: OK.
         unsafe {
-            msg1::<NSUrl, NSString>(
-                cls::NSURL.obj(),
+            msg1::<NSUrl::IPtr, NSString::IPtr>(
+                NSUrl::obj(),
                 sel::URLWithString_.sel(),
-                NSString::new(s),
+                NSString::IPtr::new(s),
             )
         }
     }
 }
 
-impl MTLLibrary {
-    pub fn new_fn(&self, name: &CStr) -> MTLFunction {
+impl MTLLibrary::PPtr {
+    pub fn new_fn(&self, name: &CStr) -> MTLFunction::PPtr {
         // SAFETY: OK.
         unsafe {
-            msg1::<MTLFunction, NSString>(
+            msg1::<MTLFunction::PPtr, NSString::IPtr>(
                 self.0,
                 sel::newFunctionWithName_.sel(),
-                NSString::new(name),
+                NSString::IPtr::new(name),
             )
         }
     }
 }
 
-impl MTLRenderPipelineColorAttachmentDescriptorArray {
-    pub fn at(&self, index: usize) -> MTLRenderPipelineColorAttachmentDescriptor {
+impl MTLRenderPipelineColorAttachmentDescriptorArray::IPtr {
+    pub fn at(&self, index: usize) -> MTLRenderPipelineColorAttachmentDescriptor::IPtr {
         // SAFETY: OK.
         unsafe {
-            msg1::<MTLRenderPipelineColorAttachmentDescriptor, NSUInteger>(
+            msg1::<MTLRenderPipelineColorAttachmentDescriptor::IPtr, NSUInteger>(
                 self.0,
                 sel::objectAtIndexedSubscript_.sel(),
                 index as NSUInteger,
@@ -698,15 +695,15 @@ impl MTLRenderPipelineColorAttachmentDescriptorArray {
     }
 }
 
-impl MTLRenderPipelineColorAttachmentDescriptor {
+impl MTLRenderPipelineColorAttachmentDescriptor::IPtr {
     objc_prop_impl!(clearColor, MTLClearColor, clear_color, set_clear_color);
     objc_prop_impl!(pixelFormat, MTLPixelFormat, pixel_fmt, set_pixel_fmt);
 }
 
-impl MTLRenderPassDescriptor {
+impl MTLRenderPassDescriptor::IPtr {
     objc_prop_impl!(
         colorAttachments,
-        MTLRenderPipelineColorAttachmentDescriptorArray,
+        MTLRenderPipelineColorAttachmentDescriptorArray::IPtr,
         color_attach,
         set_color_attach
     );
@@ -723,75 +720,53 @@ impl MTLClearColor {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct TypedMTKViewDelegate<T>(Obj, PhantomData<T>);
-
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct TypedMTKViewDelegateCls<T>(Cls, PhantomData<T>);
-
-impl<T> crate::objc::TypedPtr for TypedMTKViewDelegate<T> {
-    unsafe fn new(obj: Obj) -> Self {
-        Self(obj, PhantomData)
-    }
-    fn obj(&self) -> Obj {
-        self.0
+impl MTLCompileOptions::IPtr {
+    pub fn new() -> Self {
+        let alloc_obj = MTLCompileOptions::alloc();
+        unsafe { msg0::<MTLCompileOptions::IPtr>(alloc_obj.obj(), init.sel()) }
     }
 }
 
-impl<T> TypedMTKViewDelegate<T> {
-    pub fn get_inner(&mut self) -> &mut T {
-        unsafe { &mut *self.0.get_index_ivars() }
-    }
-
-    fn init(alloc: AllocObj<Self>) -> Self {
-        unsafe { msg0::<Self>(alloc.obj(), sel::init.sel()) }
+unsafe impl Protocol for MTKViewDelegate::PPtr {
+    fn new(obj: OPtr) -> Self {
+        Self(obj)
     }
 }
 
-impl<T: Debug> TypedMTKViewDelegateCls<T> {
-    pub fn init(
-        name: &CStr,
-        draw: extern "C" fn(TypedMTKViewDelegate<T>, _sel: Sel, _view: MTKView),
-        size_change: extern "C" fn(
-            TypedMTKViewDelegate<T>,
-            _sel: Sel,
-            _view: MTKView,
-            _size: CGSize,
-        ),
-    ) -> Self {
-        let cls = make_class(name).or_die("make_class: failed");
+impl MTKViewDelegate::PPtr {
+    pub fn implement<T>(
+        cls: &TypedCls<T, Self>,
+        draw: extern "C" fn(TypedObj<T>, Sel, MTKView::IPtr),
+        size_change: extern "C" fn(TypedObj<T>, Sel, MTKView::IPtr, CGSize),
+    ) -> bool {
         unsafe {
-            cls.add_method1(sel::drawInMTKView_.sel(), draw, c"v@:@")
-                .or_die("add_method: failed adding drawInMTKView_");
-            cls.add_method2(
+            cls.cls()
+                .add_method1(sel::drawInMTKView_.sel(), draw, c"v@:@");
+            cls.cls().add_method2(
                 sel::mtkView_drawableSizeWillChange_.sel(),
                 size_change,
                 c"v@:@{CGSize=dd}",
-            )
-            .or_die("add_method: failed adding mtkView_drawableSizeWillChange");
+            );
         }
-        cls.add_protocol(c"MTKViewDelegate")
-            .or_die("add_protocol: failed adding MTKViewDelegate");
-        Self(cls, PhantomData)
-    }
-
-    pub fn new_untyped(self, inner: T) -> MTKViewDelegate {
-        let alloc = unsafe {
-            self.0
-                .alloc_indexed::<TypedMTKViewDelegate<T>>(size_of::<T>())
-        };
-        let mut dele = TypedMTKViewDelegate::init(alloc);
-        let new_inner = dele.get_inner();
-        *new_inner = inner;
-        MTKViewDelegate(dele.0)
+        cls.cls().add_protocol(c"MTKViewDelegate")
     }
 }
 
-impl MTLCompileOptions {
-    pub fn new() -> Self {
-        let alloc = MTLCompileOptions::alloc();
-        unsafe { msg0::<MTLCompileOptions>(alloc.obj(), sel::init.sel()) }
+unsafe impl Protocol for NSWindowDelegate::PPtr {
+    fn new(obj: OPtr) -> Self {
+        Self(obj)
+    }
+}
+
+impl NSWindowDelegate::PPtr {
+    pub fn implement<T>(
+        cls: &TypedCls<T, Self>,
+        fn_ptr: extern "C" fn(TypedObj<T>, Sel, OPtr) -> bool,
+    ) -> bool {
+        unsafe {
+            cls.cls()
+                .add_method1(sel::windowShouldClose_.sel(), fn_ptr, c"c@:@");
+        }
+        cls.cls().add_protocol(c"NSWindowDelegate")
     }
 }

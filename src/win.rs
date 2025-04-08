@@ -1,25 +1,40 @@
 use crate::{
     draw::DrawState,
+    error::OrDie,
     objc::{
-        self, CGPoint, CGRect, CGSize, InstancePtr, MTKView, MTLDevice, NSApplication,
-        NSApplicationActivationPolicy, NSBackingStoreType, NSString, NSWindow, NSWindowStyleMask,
-        Obj, Sel,
+        self, OPtr, Sel, TypedCls, TypedObj,
+        wrappers::{
+            CGPoint, CGRect, CGSize, MTKView, MTLDevice, NSApplication,
+            NSApplicationActivationPolicy, NSBackingStoreType, NSString, NSWindow,
+            NSWindowDelegate, NSWindowStyleMask,
+        },
     },
 };
 
-extern "C" fn window_should_close_override(_slf: NSWindow, _sel: Sel, sender: Obj) -> bool {
+extern "C" fn window_should_close(_slf: TypedObj<WinState>, _sel: Sel, sender: OPtr) -> bool {
     println!("Window closed!");
-    NSApplication::shared().stop(sender);
+    NSApplication::IPtr::shared().stop(sender);
     true
+}
+
+#[derive(Debug)]
+struct WinState;
+
+impl WinState {
+    fn init_delegate_cls() -> TypedCls<WinState, NSWindowDelegate::PPtr> {
+        let cls = TypedCls::init(c"NSWindowDelegateWithWinState").or_die("UNREACHABLE");
+        NSWindowDelegate::PPtr::implement(&cls, window_should_close);
+        cls
+    }
 }
 
 pub fn init() {
     objc::init_objc();
 
-    NSWindow::override_window_should_close(window_should_close_override);
-    let dele_cls = DrawState::init_delegate_cls();
+    let win_dele_cls = WinState::init_delegate_cls();
+    let view_dele_cls = DrawState::init_delegate_cls();
 
-    let app = NSApplication::shared();
+    let app = NSApplication::IPtr::shared();
     app.set_activation_policy(NSApplicationActivationPolicy::Regular);
 
     let rect = CGRect {
@@ -33,19 +48,19 @@ pub fn init() {
         | NSWindowStyleMask::CLOSABLE
         | NSWindowStyleMask::MINIATURIZABLE
         | NSWindowStyleMask::RESIZABLE;
-    let title = NSString::new(c"Hello, World!");
+    let title = NSString::IPtr::new(c"Hello, World!");
 
     let win = NSWindow::alloc();
-    let win = NSWindow::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
+    let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
 
-    let device = MTLDevice::get_default();
+    let device = MTLDevice::PPtr::get_default();
 
     let alloc = MTKView::alloc();
-    let view = MTKView::init(alloc, rect, device);
+    let view = MTKView::IPtr::init(alloc, rect, device);
     let dele = DrawState::new(device, view.color_pixel_fmt());
     view.set_preferred_fps(120);
-    view.set_delegate(dele_cls.new_untyped(dele));
-
+    view.set_delegate(view_dele_cls.new_untyped(dele));
+    win.set_delegate(win_dele_cls.new_untyped(WinState));
     win.set_content_view(view);
     win.set_title(title);
     win.set_is_visible(true);
