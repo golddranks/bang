@@ -52,6 +52,7 @@ objc_instance_ptr!(CAMetalDrawable);
 objc_instance_ptr!(MTLRenderPipelineDescriptor);
 objc_instance_ptr!(MTLRenderPipelineColorAttachmentDescriptorArray);
 objc_instance_ptr!(MTLRenderPipelineColorAttachmentDescriptor);
+objc_instance_ptr!(MTLCompileOptions);
 
 objc_protocol_ptr!(MTLDevice);
 objc_protocol_ptr!(MTLCommandQueue);
@@ -78,6 +79,7 @@ pub mod cls {
     objc_class!(MTLRenderPipelineDescriptor);
     objc_class!(MTLRenderPipelineColorAttachmentDescriptorArray);
     objc_class!(MTLRenderPipelineColorAttachmentDescriptor);
+    objc_class!(MTLCompileOptions);
 }
 
 pub mod sel {
@@ -124,6 +126,7 @@ pub mod sel {
     objc_sel!(newBufferWithBytes_length_options_);
     objc_sel!(newRenderPipelineStateWithDescriptor_error_);
     objc_sel!(newLibraryWithURL_error_);
+    objc_sel!(newLibraryWithSource_options_error_);
 
     // MTLCommandQueue
     objc_sel!(commandBuffer);
@@ -168,6 +171,7 @@ pub fn init_objc() {
     cls::MTLRenderPipelineDescriptor.init();
     cls::MTLRenderPipelineColorAttachmentDescriptorArray.init();
     cls::MTLRenderPipelineColorAttachmentDescriptor.init();
+    cls::MTLCompileOptions.init();
 
     sel::alloc.init();
     sel::init.init();
@@ -210,6 +214,7 @@ pub fn init_objc() {
     sel::newBufferWithBytes_length_options_.init();
     sel::newRenderPipelineStateWithDescriptor_error_.init();
     sel::newLibraryWithURL_error_.init();
+    sel::newLibraryWithSource_options_error_.init();
 
     // MTLCommandQueue
     sel::commandBuffer.init();
@@ -517,6 +522,28 @@ impl MTLDevice {
             (None, None) | (Some(_), Some(_)) => unreachable!(),
         }
     }
+
+    pub fn new_lib_from_source(
+        &self,
+        source: NSString,
+        options: MTLCompileOptions,
+    ) -> Result<MTLLibrary, NSError> {
+        let mut error = None;
+        let res = unsafe {
+            msg3::<Option<MTLLibrary>, NSString, MTLCompileOptions, &mut Option<NSError>>(
+                self.0,
+                sel::newLibraryWithSource_options_error_.sel(),
+                source,
+                options,
+                &mut error,
+            )
+        };
+        match (res, error) {
+            (Some(lib), None) => Ok(lib),
+            (None, Some(err)) => Err(err),
+            (None, None) | (Some(_), Some(_)) => unreachable!(),
+        }
+    }
 }
 
 impl MTLCommandQueue {
@@ -759,5 +786,12 @@ impl<T: Debug> TypedMTKViewDelegateCls<T> {
         let new_inner = dele.get_inner();
         *new_inner = inner;
         MTKViewDelegate(dele.0)
+    }
+}
+
+impl MTLCompileOptions {
+    pub fn new() -> Self {
+        let alloc = MTLCompileOptions::alloc();
+        unsafe { msg0::<MTLCompileOptions>(alloc.obj(), sel::init.sel()) }
     }
 }

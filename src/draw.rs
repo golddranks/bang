@@ -1,9 +1,11 @@
+use std::ffi::CString;
+
 use crate::{
     error::OrDie,
     objc::{
-        CGSize, MTKView, MTLBuffer, MTLClearColor, MTLCommandQueue, MTLDevice, MTLPixelFormat,
-        MTLPrimitiveType, MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions,
-        NSUrl, Sel, TypedMTKViewDelegate, TypedMTKViewDelegateCls,
+        CGSize, MTKView, MTLBuffer, MTLClearColor, MTLCommandQueue, MTLCompileOptions, MTLDevice,
+        MTLPixelFormat, MTLPrimitiveType, MTLRenderPipelineDescriptor, MTLRenderPipelineState,
+        MTLResourceOptions, NSString, NSUrl, Sel, TypedMTKViewDelegate, TypedMTKViewDelegateCls,
     },
 };
 
@@ -75,12 +77,24 @@ impl DrawState {
 
         let desc = MTLRenderPipelineDescriptor::new();
 
-        let lib = device
-            .new_lib_with_url(NSUrl::new(c"target/shaders.metallib"))
-            .or_die(
-                "new_lib_with_url: Failed to create library with file target/shaders.metallib! \
-                Try running `make shaders` to generate that file.",
-            );
+        let mut source =
+            std::fs::read_to_string("src/shaders.metal").or_die("Failed to read shader source");
+        source.push('\0');
+        let source =
+            NSString::new(&CString::from_vec_with_nul(source.into_bytes()).expect("UNREACHABLE"));
+        let options = MTLCompileOptions::new();
+
+        let lib = match device.new_lib_with_url(NSUrl::new(c"target/shaders.metallib")) {
+            Ok(lib) => lib,
+            Err(_) => {
+                eprintln!("Couldn't find precompiled shaders, compiling from source...");
+                let lib = device
+                    .new_lib_from_source(source, options)
+                    .or_die("failed to create library");
+                eprintln!("Compiled!");
+                lib
+            }
+        };
 
         desc.set_vtex_fn(lib.new_fn(c"vertexShader"));
         desc.set_frag_fn(lib.new_fn(c"fragmentShader"));
