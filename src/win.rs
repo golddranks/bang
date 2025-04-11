@@ -2,28 +2,64 @@ use crate::{
     draw::DrawState,
     error::OrDie,
     objc::{
-        self, OPtr, Sel, TypedCls, TypedObj,
+        self, NSString, OPtr, Sel, TypedCls, TypedObj,
         wrappers::{
             CGPoint, CGRect, CGSize, MTKView, MTLDevice, NSApplication,
-            NSApplicationActivationPolicy, NSBackingStoreType, NSString, NSWindow,
-            NSWindowDelegate, NSWindowStyleMask,
+            NSApplicationActivationPolicy, NSBackingStoreType, NSEvent, NSMenu, NSMenuItem,
+            NSResponder, NSWindow, NSWindowDelegate, NSWindowStyleMask, sel,
         },
     },
 };
 
-extern "C" fn window_should_close(_slf: TypedObj<WinState>, _sel: Sel, sender: OPtr) -> bool {
-    println!("Window closed!");
+extern "C" fn win_should_close(_slf: TypedObj<WinState>, _sel: Sel, sender: OPtr) -> bool {
     NSApplication::IPtr::shared().stop(sender);
     true
 }
 
+extern "C" fn win_did_resize(mut slf: TypedObj<WinState>, _sel: Sel, _notify: OPtr) {
+    let state = slf.get_inner();
+    let rect = state.win.content_rect();
+    let aspect = state.win.content_aspect_ratio();
+    let x = (rect.size.width / aspect.width).round();
+    state.win.set_content_size(CGSize {
+        width: aspect.width * x,
+        height: aspect.height * x,
+    })
+}
+
+extern "C" fn key_down(_slf: TypedObj<()>, _sel: Sel, key: NSEvent::IPtr) {
+    dbg!(key.chars());
+    dbg!(key.chars_ignore_mod());
+    dbg!(key.key_code());
+}
+
+extern "C" fn flags_changed(_slf: TypedObj<()>, _sel: Sel, flags: NSEvent::IPtr) {
+    dbg!(flags.key_code());
+    dbg!(flags.mod_flags());
+}
+
 #[derive(Debug)]
-struct WinState;
+struct WinState {
+    win: NSWindow::IPtr,
+}
 
 impl WinState {
     fn init_delegate_cls() -> TypedCls<WinState, NSWindowDelegate::PPtr> {
-        let cls = TypedCls::init(c"NSWindowDelegateWithWinState").or_die("UNREACHABLE");
-        NSWindowDelegate::PPtr::implement(&cls, window_should_close);
+        let cls = TypedCls::make_class(c"NSWindowDelegateWithWinState").or_die("UNREACHABLE");
+        NSWindowDelegate::PPtr::implement(&cls, win_should_close, win_did_resize);
+        cls
+    }
+}
+
+#[derive(Debug)]
+struct MyNSWindow;
+
+impl MyNSWindow {
+    fn init_as_subclass() -> TypedCls<MyNSWindow, NSWindow::IPtr> {
+        let cls = TypedCls::make_subclass(NSWindow::cls(), c"MyNSWindow").or_die("UNREACHABLE");
+        NSResponder::override_accepts_first_responder_as_true(cls.cls());
+        NSResponder::override_key_down(cls.cls(), key_down);
+        NSResponder::override_flag_changed(cls.cls(), flags_changed);
         cls
     }
 }
@@ -33,16 +69,23 @@ pub fn init() {
 
     let win_dele_cls = WinState::init_delegate_cls();
     let view_dele_cls = DrawState::init_delegate_cls();
+    let my_win = MyNSWindow::init_as_subclass();
 
     let app = NSApplication::IPtr::shared();
     app.set_activation_policy(NSApplicationActivationPolicy::Regular);
+    let main_menu = NSMenu::IPtr::new(c"juuh");
+    let quit_item = NSMenuItem::IPtr::new(c"Quit", sel::stop_.sel(), c"q");
+    main_menu.add_item(quit_item);
+    app.set_main_menu(main_menu);
+
+    let size = CGSize {
+        width: 160.0,
+        height: 100.0,
+    };
 
     let rect = CGRect {
         origin: CGPoint { x: 200.0, y: 200.0 },
-        size: CGSize {
-            width: 800.0,
-            height: 600.0,
-        },
+        size,
     };
     let style_mask = NSWindowStyleMask::TITLED
         | NSWindowStyleMask::CLOSABLE
@@ -50,7 +93,7 @@ pub fn init() {
         | NSWindowStyleMask::RESIZABLE;
     let title = NSString::IPtr::new(c"Hello, World!");
 
-    let win = NSWindow::alloc();
+    let win = my_win.alloc(MyNSWindow);
     let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
 
     let device = MTLDevice::PPtr::get_default();
@@ -59,12 +102,14 @@ pub fn init() {
     let view = MTKView::IPtr::init(alloc, rect, device);
     let dele = DrawState::new(device, view.color_pixel_fmt());
     view.set_preferred_fps(120);
-    view.set_delegate(view_dele_cls.new_untyped(dele));
-    win.set_delegate(win_dele_cls.new_untyped(WinState));
+    view.set_delegate(view_dele_cls.alloc_init(dele));
+    win.set_delegate(win_dele_cls.alloc_init(WinState { win }));
     win.set_content_view(view);
     win.set_title(title);
     win.set_is_visible(true);
     win.set_main();
     win.center();
+    win.set_content_min_size(size);
+    win.set_content_aspect_ratio(size);
     app.run();
 }

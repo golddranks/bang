@@ -1,12 +1,12 @@
 #![allow(dead_code)]
-use std::{ffi::CStr, fmt::Debug, ops::BitOr};
+use std::{ffi::CStr, fmt::Debug};
 
 use crate::objc::crimes::objc_prop_sel_init;
 
 use super::crimes::{
-    AllocObj, Bool, CGFloat, CStrPtr, NSInteger, NSUInteger, OPtr, Protocol, Ptr, Sel, TypedCls,
-    TypedObj, init, init_objc_core, msg0, msg1, msg2, msg3, msg4, objc_class, objc_prop_impl,
-    objc_protocol,
+    AllocObj, Bool, CGFloat, CPtr, NSInteger, NSString, NSUInteger, OPtr, Protocol, Ptr, Sel,
+    TypedCls, TypedObj, derive_BitOr, init_objc_core, msg0, msg1, msg2, msg3, msg4, objc_class,
+    objc_prop_impl, objc_protocol, sel::init,
 };
 
 unsafe extern "C" {
@@ -34,7 +34,6 @@ pub struct CGRect {
     pub size: CGSize,
 }
 
-objc_class!(NSString, NSString, (Clone, Copy));
 objc_class!(NSError);
 objc_class!(NSUrl, NSURL, (Debug, Clone, Copy));
 objc_class!(NSApplication);
@@ -46,6 +45,9 @@ objc_class!(MTLRenderPipelineDescriptor);
 objc_class!(MTLRenderPipelineColorAttachmentDescriptorArray);
 objc_class!(MTLRenderPipelineColorAttachmentDescriptor);
 objc_class!(MTLCompileOptions);
+objc_class!(NSEvent);
+objc_class!(NSMenu);
+objc_class!(NSMenuItem);
 
 objc_protocol!(MTLDevice);
 objc_protocol!(MTLCommandQueue);
@@ -63,28 +65,30 @@ pub mod sel {
 
     // misc
     objc_prop_sel!(delegate);
-
-    // NSString
-    objc_sel!(URLWithString_);
-    objc_sel!(UTF8String);
+    objc_prop_sel!(title);
 
     // NSUrl
-    objc_sel!(stringWithUTF8String_);
+    objc_sel!(URLWithString_);
 
     // NSApplication
     objc_sel!(sharedApplication);
     objc_sel!(setActivationPolicy_);
     objc_sel!(run);
     objc_sel!(stop_);
+    objc_prop_sel!(mainMenu);
 
     // NSWindow
     objc_sel!(initWithContentRect_styleMask_backing_defer_);
     objc_sel!(makeMainWindow);
     objc_sel!(center);
-    objc_sel!(windowShouldClose_);
-    objc_prop_sel!(title);
+    objc_sel!(setContentSize_);
     objc_prop_sel!(isVisible);
     objc_prop_sel!(contentView);
+    objc_prop_sel!(contentAspectRatio);
+    objc_prop_sel!(contentResizeIncrements);
+    objc_prop_sel!(contentLayoutRect);
+    objc_prop_sel!(frame);
+    objc_prop_sel!(contentMinSize);
 
     // MKTView
     objc_sel!(initWithFrame_device_);
@@ -135,12 +139,36 @@ pub mod sel {
 
     // MTLRenderPipelineColorAttachmentDescriptor
     objc_prop_sel!(pixelFormat);
+
+    // NSWindowDelegate
+    objc_sel!(windowWillResize_toSize_);
+    objc_sel!(windowDidEndLiveResize_);
+    objc_sel!(windowShouldClose_);
+
+    // NSEvent
+    objc_prop_sel!(characters);
+    objc_prop_sel!(charactersIgnoringModifiers);
+    objc_prop_sel!(keyCode);
+    objc_prop_sel!(modifierFlags);
+
+    // NSResponder
+    objc_prop_sel!(acceptsFirstResponder);
+    objc_sel!(flagsChanged_);
+    objc_sel!(keyDown_);
+
+    // NSMenu
+    objc_sel!(initWithTitle_);
+    objc_sel!(addItem_);
+    objc_sel!(itemAtIndex_);
+
+    // NSMenuItem
+    objc_sel!(initWithTitle_action_keyEquivalent_);
+    objc_prop_sel!(submenu);
 }
 
 pub fn init_objc() {
     init_objc_core();
 
-    NSString::init();
     NSUrl::init();
     NSError::init();
     NSApplication::init();
@@ -152,10 +180,9 @@ pub fn init_objc() {
     MTLRenderPipelineColorAttachmentDescriptorArray::init();
     MTLRenderPipelineColorAttachmentDescriptor::init();
     MTLCompileOptions::init();
-
-    // NSString
-    sel::stringWithUTF8String_.init();
-    sel::UTF8String.init();
+    NSEvent::init();
+    NSMenu::init();
+    NSMenuItem::init();
 
     // NSUrl
     sel::URLWithString_.init();
@@ -165,15 +192,21 @@ pub fn init_objc() {
     sel::setActivationPolicy_.init();
     sel::run.init();
     sel::stop_.init();
+    objc_prop_sel_init!(mainMenu);
 
     // NSWindow
     sel::initWithContentRect_styleMask_backing_defer_.init();
     sel::makeMainWindow.init();
     sel::center.init();
-    sel::windowShouldClose_.init();
+    sel::setContentSize_.init();
     objc_prop_sel_init!(title);
     objc_prop_sel_init!(isVisible);
     objc_prop_sel_init!(contentView);
+    objc_prop_sel_init!(contentAspectRatio);
+    objc_prop_sel_init!(contentResizeIncrements);
+    objc_prop_sel_init!(contentLayoutRect);
+    objc_prop_sel_init!(frame);
+    objc_prop_sel_init!(contentMinSize);
 
     // MTKView
     sel::initWithFrame_device_.init();
@@ -225,37 +258,31 @@ pub fn init_objc() {
 
     // MTLRenderPipelineColorAttachmentDescriptor
     objc_prop_sel_init!(pixelFormat);
-}
 
-impl NSString::IPtr {
-    pub fn new(s: &CStr) -> NSString::IPtr {
-        // SAFETY: OK.
-        unsafe {
-            msg1::<NSString::IPtr, CStrPtr>(
-                NSString::obj(),
-                sel::stringWithUTF8String_.sel(),
-                CStrPtr::new(s),
-            )
-        }
-    }
+    // NSWindowDelegate
+    sel::windowWillResize_toSize_.init();
+    sel::windowDidEndLiveResize_.init();
+    sel::windowShouldClose_.init();
+    sel::keyDown_.init();
 
-    pub fn as_cstr(&self) -> &CStr {
-        // SAFETY: OK. the CStrPtr lifetime is constrained by the output &CStr, which is constrained by &self
-        unsafe { msg0::<CStrPtr>(self.0, sel::UTF8String.sel()) }.to_cstr()
-    }
-}
+    // NSEvent
+    objc_prop_sel_init!(characters);
+    objc_prop_sel_init!(charactersIgnoringModifiers);
+    objc_prop_sel_init!(keyCode);
+    objc_prop_sel_init!(modifierFlags);
 
-impl Debug for NSString::IPtr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.as_cstr().fmt(f)
-    }
-}
+    // NSResponder
+    objc_prop_sel_init!(acceptsFirstResponder);
+    sel::flagsChanged_.init();
 
-#[test]
-fn test_ns_string() {
-    init_objc();
-    let s = NSString::IPtr::new(c"huhheiやー");
-    assert_eq!(s.as_cstr(), c"huhheiやー");
+    // NSMenu
+    sel::initWithTitle_.init();
+    sel::addItem_.init();
+    sel::itemAtIndex_.init();
+
+    // NSMenuItem
+    sel::initWithTitle_action_keyEquivalent_.init();
+    objc_prop_sel_init!(submenu);
 }
 
 impl NSApplication::IPtr {
@@ -280,6 +307,8 @@ impl NSApplication::IPtr {
     pub fn stop(&self, sender: OPtr) {
         unsafe { msg1::<(), OPtr>(self.0, sel::stop_.sel(), sender) };
     }
+
+    objc_prop_impl!(mainMenu, NSMenu::IPtr, main_menu, set_main_menu);
 }
 
 #[repr(i64)]
@@ -292,22 +321,17 @@ pub enum NSBackingStoreType {
     Buffered = 2,
 }
 
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct NSWindowStyleMask(NSUInteger);
+
+derive_BitOr!(NSWindowStyleMask);
 
 impl NSWindowStyleMask {
     pub const TITLED: Self = Self(1);
     pub const CLOSABLE: Self = Self(2);
     pub const MINIATURIZABLE: Self = Self(4);
     pub const RESIZABLE: Self = Self(8);
-}
-
-impl BitOr for NSWindowStyleMask {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self(self.0 | rhs.0)
-    }
 }
 
 #[test]
@@ -327,12 +351,6 @@ fn test_mem_layout() {
 }
 
 impl NSWindow::IPtr {
-    pub fn override_window_should_close(f: extern "C" fn(NSWindow::IPtr, Sel, OPtr) -> Bool) {
-        unsafe {
-            NSWindow::cls().add_method1(sel::windowShouldClose_.sel(), f, c"c@:@");
-        }
-    }
-
     pub fn init(
         alloc_obj: AllocObj<NSWindow::IPtr>,
         rect: CGRect,
@@ -356,14 +374,39 @@ impl NSWindow::IPtr {
         unsafe { msg0::<()>(self.0, sel::makeMainWindow.sel()) };
     }
 
+    pub fn set_content_size(&self, size: CGSize) {
+        unsafe { msg1::<(), CGSize>(self.0, sel::setContentSize_.sel(), size) };
+    }
+
     pub fn center(&self) {
         unsafe { msg0::<()>(self.0, sel::center.sel()) };
     }
 
+    objc_prop_impl!(acceptsFirstResponder, Bool, accepts_first_responder);
     objc_prop_impl!(delegate, NSWindowDelegate::PPtr, delegate, set_delegate);
     objc_prop_impl!(title, NSString::IPtr, title, set_title);
     objc_prop_impl!(isVisible, bool, is_visible, set_is_visible);
     objc_prop_impl!(contentView, MTKView::IPtr, content_view, set_content_view);
+    objc_prop_impl!(
+        contentAspectRatio,
+        CGSize,
+        content_aspect_ratio,
+        set_content_aspect_ratio
+    );
+    objc_prop_impl!(
+        contentResizeIncrements,
+        CGSize,
+        content_resize_increments,
+        set_content_resize_increments
+    );
+    objc_prop_impl!(contentLayoutRect, CGRect, content_rect);
+    objc_prop_impl!(frame, CGRect, frame, set_frame);
+    objc_prop_impl!(
+        contentMinSize,
+        CGSize,
+        content_min_size,
+        set_content_min_size
+    );
 }
 
 #[repr(C)]
@@ -628,16 +671,10 @@ impl MTLRenderCommandEncoder::PPtr {
 #[repr(transparent)]
 pub struct MTLResourceOptions(NSUInteger);
 
+derive_BitOr!(MTLResourceOptions);
+
 impl MTLResourceOptions {
     pub const DEFAULT: Self = Self(0);
-}
-
-impl BitOr for MTLResourceOptions {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self(self.0 | rhs.0)
-    }
 }
 
 impl MTLRenderPipelineDescriptor::IPtr {
@@ -761,12 +798,118 @@ unsafe impl Protocol for NSWindowDelegate::PPtr {
 impl NSWindowDelegate::PPtr {
     pub fn implement<T>(
         cls: &TypedCls<T, Self>,
-        fn_ptr: extern "C" fn(TypedObj<T>, Sel, OPtr) -> bool,
+        should_close: extern "C" fn(TypedObj<T>, Sel, OPtr) -> bool,
+        will_resize: extern "C" fn(TypedObj<T>, Sel, OPtr),
     ) -> bool {
         unsafe {
             cls.cls()
-                .add_method1(sel::windowShouldClose_.sel(), fn_ptr, c"c@:@");
+                .add_method1(sel::windowShouldClose_.sel(), should_close, c"c@:@");
+            cls.cls()
+                .add_method1(sel::windowDidEndLiveResize_.sel(), will_resize, c"v@:@");
         }
         cls.cls().add_protocol(c"NSWindowDelegate")
     }
+}
+
+impl NSEvent::IPtr {
+    objc_prop_impl!(characters, NSString::IPtr, chars);
+    objc_prop_impl!(
+        charactersIgnoringModifiers,
+        NSString::IPtr,
+        chars_ignore_mod
+    );
+    objc_prop_impl!(keyCode, u16, key_code);
+    objc_prop_impl!(modifierFlags, NSEventModifierFlags, mod_flags);
+}
+
+pub struct NSResponder;
+
+impl NSResponder {
+    pub fn override_key_down<T>(
+        cls: CPtr,
+        key_down: extern "C" fn(TypedObj<T>, Sel, NSEvent::IPtr),
+    ) {
+        unsafe {
+            cls.add_method1(sel::keyDown_.sel(), key_down, c"v@:@");
+        }
+    }
+
+    pub fn override_flag_changed<T>(
+        cls: CPtr,
+        key_down: extern "C" fn(TypedObj<T>, Sel, NSEvent::IPtr),
+    ) {
+        unsafe {
+            cls.add_method1(sel::flagsChanged_.sel(), key_down, c"v@:@");
+        }
+    }
+
+    extern "C" fn yes(_slf: TypedObj<()>, _sel: Sel) -> bool {
+        true
+    }
+
+    pub fn override_accepts_first_responder_as_true(cls: CPtr) {
+        unsafe {
+            cls.add_method0(sel::acceptsFirstResponder::GETTER.sel(), Self::yes, c"c@:");
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct NSEventModifierFlags(NSUInteger);
+
+derive_BitOr!(NSEventModifierFlags);
+
+impl NSEventModifierFlags {
+    const CAPSLOCK: Self = Self(1 << 16);
+    const SHIFT: Self = Self(1 << 17);
+    const CTRL: Self = Self(1 << 18);
+    const OPTION: Self = Self(1 << 19);
+    const CMD: Self = Self(1 << 20);
+    const NUMPAD: Self = Self(1 << 21);
+    const HELP: Self = Self(1 << 22);
+    const FUNCTION: Self = Self(1 << 23);
+}
+
+impl NSMenu::IPtr {
+    pub fn new(title: &CStr) -> Self {
+        let alloc_obj = NSMenu::alloc();
+        unsafe {
+            msg1::<Self, NSString::IPtr>(
+                alloc_obj.obj(),
+                sel::initWithTitle_.sel(),
+                NSString::IPtr::new(title),
+            )
+        }
+    }
+
+    pub fn add_item(self, item: NSMenuItem::IPtr) {
+        unsafe {
+            msg1::<(), NSMenuItem::IPtr>(self.0, sel::addItem_.sel(), item);
+        }
+    }
+
+    pub fn item_at(self, idx: usize) -> NSMenuItem::IPtr {
+        unsafe {
+            msg1::<NSMenuItem::IPtr, NSUInteger>(self.0, sel::itemAtIndex_.sel(), idx as NSUInteger)
+        }
+    }
+}
+
+impl NSMenuItem::IPtr {
+    pub fn new(title: &CStr, action: Sel, key_equiv: &CStr) -> Self {
+        let alloc_obj = NSMenuItem::alloc();
+        unsafe {
+            msg3::<Self, NSString::IPtr, Sel, NSString::IPtr>(
+                alloc_obj.obj(),
+                sel::initWithTitle_action_keyEquivalent_.sel(),
+                NSString::IPtr::new(title),
+                action,
+                NSString::IPtr::new(key_equiv),
+            )
+        }
+    }
+
+    objc_prop_impl!(title, NSString::IPtr, title, set_title);
+    objc_prop_impl!(submenu, NSMenu::IPtr, submenu, set_submenu);
 }

@@ -3,5 +3,5 @@
 mod crimes;
 pub mod wrappers;
 
-pub use crimes::{OPtr, Sel, TypedCls, TypedObj, TypedPtr};
+pub use crimes::{NSString, OPtr, Sel, TypedCls, TypedObj, TypedPtr};
 pub use wrappers::init_objc;

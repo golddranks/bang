@@ -3,12 +3,11 @@ use std::ffi::CString;
 use crate::{
     error::OrDie,
     objc::{
-        Sel, TypedCls, TypedObj,
+        NSString, Sel, TypedCls, TypedObj,
         wrappers::{
             CGSize, MTKView, MTKViewDelegate, MTLBuffer, MTLClearColor, MTLCommandQueue,
             MTLCompileOptions, MTLDevice, MTLPixelFormat, MTLPrimitiveType,
-            MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, NSString,
-            NSUrl,
+            MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, NSUrl,
         },
     },
 };
@@ -25,9 +24,6 @@ extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr
     let state = dele.get_inner();
 
     let phase = state.frame % 100;
-    if phase == 0 {
-        println!("Frame: {}", state.frame);
-    }
     let color_phase = 0.01 * phase as f64;
     let pos_phase = 0.04 * phase as f32 - 2.0;
 
@@ -48,6 +44,7 @@ extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr
     let drawable = view.current_drawable().or_die("drawable");
     cmd_buf.present_drawable(drawable);
     cmd_buf.commit();
+
     state.frame += 1;
 }
 
@@ -55,14 +52,14 @@ extern "C" fn size_change(
     _slf: TypedObj<DrawState>,
     _sel: Sel,
     _view: MTKView::IPtr,
-    _size: CGSize,
+    size: CGSize,
 ) {
-    dbg!("size change called?!");
+    eprintln!("size change called?! {:?}", size);
 }
 
 impl DrawState {
     pub fn init_delegate_cls() -> TypedCls<DrawState, MTKViewDelegate::PPtr> {
-        let cls = TypedCls::init(c"MTKViewDelegateWithDrawState").or_die("UNREACHABLE");
+        let cls = TypedCls::make_class(c"MTKViewDelegateWithDrawState").or_die("UNREACHABLE");
         MTKViewDelegate::PPtr::implement(&cls, draw, size_change);
         cls
     }

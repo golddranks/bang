@@ -18,6 +18,7 @@ pub type CGFloat = c_double;
 
 // SAFETY: OK. each of the extern function signatures are carefully checked and thought of
 unsafe extern "C" {
+    safe fn NSSetUncaughtExceptionHandler(f: extern "C" fn(NSException::IPtr));
     safe fn class_createInstance(cls: CPtr, extra_bytes: usize) -> OPtr;
     safe fn class_addProtocol(cls: CPtr, protocol: CStrPtr) -> bool;
     safe fn object_getIndexedIvars(obj: OPtr) -> *const c_void;
@@ -48,8 +49,9 @@ unsafe extern "C" {
     ) -> Bool;
 }
 
-pub fn make_subclass(class: CPtr, name: &CStr) -> Option<UnregisteredCls> {
-    objc_allocateClassPair(class, CStrPtr::new(name), 0)
+pub fn make_subclass(class: CPtr, name: &CStr) -> Option<CPtr> {
+    let cls = objc_allocateClassPair(class, CStrPtr::new(name), 0)?;
+    Some(cls.register())
 }
 
 pub fn sel(name: &CStr) -> Sel {
@@ -283,7 +285,7 @@ impl CPtr {
     // SAFETY: the caller must ensure that the type T is layout-compatible with the allocation,
     // i.e. that the self Cls object is a subclass of T's Cls
     pub unsafe fn alloc<T>(self) -> AllocObj<T> {
-        unsafe { msg0::<AllocObj<T>>(self.obj(), alloc.sel()) }
+        unsafe { msg0::<AllocObj<T>>(self.obj(), sel::alloc.sel()) }
     }
 
     pub unsafe fn alloc_indexed<T>(self, extra_bytes: usize) -> AllocObj<T> {
@@ -460,7 +462,7 @@ impl<T> TypedObj<T> {
     }
 
     fn init(alloc_obj: AllocObj<Self>) -> Self {
-        unsafe { msg0::<Self>(alloc_obj.obj(), init.sel()) }
+        unsafe { msg0::<Self>(alloc_obj.obj(), sel::init.sel()) }
     }
 }
 
@@ -468,22 +470,38 @@ impl<T> TypedObj<T> {
 #[repr(transparent)]
 pub struct TypedCls<T, P>(CPtr, PhantomData<(T, P)>);
 
+impl<T, S> TypedCls<T, S> {
+    pub fn make_subclass(cls: CPtr, name: &CStr) -> Option<Self> {
+        let cls = make_subclass(cls, name)?;
+        Some(Self(cls, PhantomData))
+    }
+}
+
 impl<T, P: Protocol> TypedCls<T, P> {
+    pub fn make_class(name: &CStr) -> Option<Self> {
+        let cls = make_class(name)?;
+        Some(Self(cls, PhantomData))
+    }
+}
+
+impl<T, P: TypedPtr> TypedCls<T, P> {
     pub fn cls(&self) -> CPtr {
         self.0
     }
 
-    pub fn init(name: &CStr) -> Option<Self> {
-        let cls = make_class(name)?;
-        Some(Self(cls, PhantomData))
-    }
-
-    pub fn new_untyped(self, inner: T) -> P {
+    pub fn alloc_init(self, inner: T) -> P {
         let alloc_obj = unsafe { self.0.alloc_indexed::<TypedObj<T>>(size_of::<T>()) };
         let mut obj = TypedObj::init(alloc_obj);
         let new_inner = obj.get_inner();
         *new_inner = inner;
-        P::new(obj.0)
+        unsafe { P::new(obj.0) }
+    }
+
+    pub fn alloc(self, inner: T) -> AllocObj<P> {
+        let mut alloc_obj = unsafe { self.0.alloc_indexed::<TypedObj<T>>(size_of::<T>()) };
+        let obj_inner = unsafe { (&mut alloc_obj.0).get_index_ivars() };
+        *obj_inner = inner;
+        AllocObj(alloc_obj.0, PhantomData)
     }
 }
 
@@ -542,10 +560,13 @@ macro_rules! objc_prop_sel_init {
 }
 
 macro_rules! objc_prop_impl {
-    ( $prop:ident, $prop_type:ty, $getter:ident, $setter:ident ) => {
+    ( $prop:ident, $prop_type:ty, $getter:ident ) => {
         pub fn $getter(&self) -> $prop_type {
             unsafe { msg0::<$prop_type>(self.0, sel::$prop::GETTER.sel()) }
         }
+    };
+    ( $prop:ident, $prop_type:ty, $getter:ident, $setter:ident ) => {
+        objc_prop_impl!($prop, $prop_type, $getter);
         pub fn $setter(&self, arg: $prop_type) {
             unsafe { msg1::<(), $prop_type>(self.0, sel::$prop::SETTER.sel(), arg) };
         }
@@ -623,7 +644,20 @@ macro_rules! objc_protocol {
     };
 }
 
+macro_rules! derive_BitOr {
+    ($type:ty) => {
+        impl std::ops::BitOr for $type {
+            type Output = Self;
+
+            fn bitor(self, rhs: Self) -> Self::Output {
+                Self(self.0 | rhs.0)
+            }
+        }
+    };
+}
+
 pub(crate) use c_stringify;
+pub(crate) use derive_BitOr;
 pub(crate) use objc_class;
 pub(crate) use objc_prop_impl;
 pub(crate) use objc_prop_sel;
@@ -631,15 +665,79 @@ pub(crate) use objc_prop_sel_init;
 pub(crate) use objc_protocol;
 pub(crate) use objc_sel;
 
+objc_class!(NSString, NSString, (Clone, Copy));
 objc_class!(NSObject);
+objc_class!(NSException);
 
-objc_sel!(alloc);
-objc_sel!(init);
+pub mod sel {
+    // NSObject
+    objc_sel!(alloc);
+    objc_sel!(init);
 
+    // NSException
+    objc_prop_sel!(name);
+    objc_prop_sel!(reason);
+
+    // NSString
+    objc_sel!(UTF8String);
+    objc_sel!(stringWithUTF8String_);
+}
 pub fn init_objc_core() {
     NSObject::init();
+    NSException::init();
+    NSString::init();
 
     // NSObject
-    alloc.init();
-    init.init();
+    sel::alloc.init();
+    sel::init.init();
+
+    // NSException
+    objc_prop_sel_init!(name);
+    objc_prop_sel_init!(reason);
+
+    // NSString
+    sel::stringWithUTF8String_.init();
+    sel::UTF8String.init();
+
+    NSSetUncaughtExceptionHandler(handle_exception);
+}
+
+impl NSException::IPtr {
+    objc_prop_impl!(name, NSString::IPtr, name, set_name);
+    objc_prop_impl!(reason, NSString::IPtr, reason, set_reason);
+}
+
+extern "C" fn handle_exception(e: NSException::IPtr) {
+    eprintln!("{:?}", e.name().as_cstr());
+}
+
+impl NSString::IPtr {
+    pub fn new(s: &CStr) -> NSString::IPtr {
+        // SAFETY: OK.
+        unsafe {
+            msg1::<NSString::IPtr, CStrPtr>(
+                NSString::obj(),
+                sel::stringWithUTF8String_.sel(),
+                CStrPtr::new(s),
+            )
+        }
+    }
+
+    pub fn as_cstr(&self) -> &CStr {
+        // SAFETY: OK. the CStrPtr lifetime is constrained by the output &CStr, which is constrained by &self
+        unsafe { msg0::<CStrPtr>(self.0, sel::UTF8String.sel()) }.to_cstr()
+    }
+}
+
+impl Debug for NSString::IPtr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_cstr().fmt(f)
+    }
+}
+
+#[test]
+fn test_ns_string() {
+    init_objc_core();
+    let s = NSString::IPtr::new(c"huhheiやー");
+    assert_eq!(s.as_cstr(), c"huhheiやー");
 }
