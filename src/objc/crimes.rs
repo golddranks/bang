@@ -489,7 +489,7 @@ impl<T, P: TypedPtr> TypedCls<T, P> {
         self.0
     }
 
-    pub fn alloc_init(self, inner: T) -> P {
+    pub fn alloc_init_upcasted(self, inner: T) -> P {
         let alloc_obj = unsafe { self.0.alloc_indexed::<TypedObj<T>>(size_of::<T>()) };
         let mut obj = TypedObj::init(alloc_obj);
         let new_inner = obj.get_inner();
@@ -497,7 +497,7 @@ impl<T, P: TypedPtr> TypedCls<T, P> {
         unsafe { P::new(obj.0) }
     }
 
-    pub fn alloc(self, inner: T) -> AllocObj<P> {
+    pub fn alloc_upcasted(self, inner: T) -> AllocObj<P> {
         let mut alloc_obj = unsafe { self.0.alloc_indexed::<TypedObj<T>>(size_of::<T>()) };
         let obj_inner = unsafe { (&mut alloc_obj.0).get_index_ivars() };
         *obj_inner = inner;

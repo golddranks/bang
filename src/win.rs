@@ -64,6 +64,17 @@ impl MyNSWindow {
     }
 }
 
+fn setup_main_menu(app: NSApplication::IPtr) {
+    let main_menu = NSMenu::IPtr::new(c"MainMenu");
+    let app_menu_item = NSMenuItem::IPtr::new(c"AppMenu", None, c"");
+    let app_menu = NSMenu::IPtr::new(c"AppMenu");
+    let quit_item = NSMenuItem::IPtr::new(c"Quit", Some(sel::stop_.sel()), c"q");
+    app_menu.add_item(quit_item);
+    app_menu_item.set_submenu(app_menu);
+    main_menu.add_item(app_menu_item);
+    app.set_main_menu(main_menu);
+}
+
 pub fn init() {
     objc::init_objc();
 
@@ -73,10 +84,7 @@ pub fn init() {
 
     let app = NSApplication::IPtr::shared();
     app.set_activation_policy(NSApplicationActivationPolicy::Regular);
-    let main_menu = NSMenu::IPtr::new(c"juuh");
-    let quit_item = NSMenuItem::IPtr::new(c"Quit", sel::stop_.sel(), c"q");
-    main_menu.add_item(quit_item);
-    app.set_main_menu(main_menu);
+    setup_main_menu(app);
 
     let size = CGSize {
         width: 160.0,
@@ -93,7 +101,7 @@ pub fn init() {
         | NSWindowStyleMask::RESIZABLE;
     let title = NSString::IPtr::new(c"Hello, World!");
 
-    let win = my_win.alloc(MyNSWindow);
+    let win = my_win.alloc_upcasted(MyNSWindow);
     let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
 
     let device = MTLDevice::PPtr::get_default();
@@ -102,8 +110,8 @@ pub fn init() {
     let view = MTKView::IPtr::init(alloc, rect, device);
     let dele = DrawState::new(device, view.color_pixel_fmt());
     view.set_preferred_fps(120);
-    view.set_delegate(view_dele_cls.alloc_init(dele));
-    win.set_delegate(win_dele_cls.alloc_init(WinState { win }));
+    view.set_delegate(view_dele_cls.alloc_init_upcasted(dele));
+    win.set_delegate(win_dele_cls.alloc_init_upcasted(WinState { win }));
     win.set_content_view(view);
     win.set_title(title);
     win.set_is_visible(true);

@@ -160,6 +160,7 @@ pub mod sel {
     objc_sel!(initWithTitle_);
     objc_sel!(addItem_);
     objc_sel!(itemAtIndex_);
+    objc_sel!(insertItemWithTitle_action_keyEquivalent_atIndex_);
 
     // NSMenuItem
     objc_sel!(initWithTitle_action_keyEquivalent_);
@@ -279,6 +280,7 @@ pub fn init_objc() {
     sel::initWithTitle_.init();
     sel::addItem_.init();
     sel::itemAtIndex_.init();
+    sel::insertItemWithTitle_action_keyEquivalent_atIndex_.init();
 
     // NSMenuItem
     sel::initWithTitle_action_keyEquivalent_.init();
@@ -891,16 +893,35 @@ impl NSMenu::IPtr {
 
     pub fn item_at(self, idx: usize) -> NSMenuItem::IPtr {
         unsafe {
-            msg1::<NSMenuItem::IPtr, NSUInteger>(self.0, sel::itemAtIndex_.sel(), idx as NSUInteger)
+            msg1::<NSMenuItem::IPtr, NSInteger>(self.0, sel::itemAtIndex_.sel(), idx as NSInteger)
+        }
+    }
+
+    pub fn insert_item(
+        self,
+        title: &CStr,
+        action: Option<Sel>,
+        key_equiv: &CStr,
+        idx: usize,
+    ) -> NSMenuItem::IPtr {
+        unsafe {
+            msg4::<NSMenuItem::IPtr, NSString::IPtr, Option<Sel>, NSString::IPtr, NSInteger>(
+                self.0,
+                sel::insertItemWithTitle_action_keyEquivalent_atIndex_.sel(),
+                NSString::IPtr::new(title),
+                action,
+                NSString::IPtr::new(key_equiv),
+                idx as NSInteger,
+            )
         }
     }
 }
 
 impl NSMenuItem::IPtr {
-    pub fn new(title: &CStr, action: Sel, key_equiv: &CStr) -> Self {
+    pub fn new(title: &CStr, action: Option<Sel>, key_equiv: &CStr) -> Self {
         let alloc_obj = NSMenuItem::alloc();
         unsafe {
-            msg3::<Self, NSString::IPtr, Sel, NSString::IPtr>(
+            msg3::<Self, NSString::IPtr, Option<Sel>, NSString::IPtr>(
                 alloc_obj.obj(),
                 sel::initWithTitle_action_keyEquivalent_.sel(),
                 NSString::IPtr::new(title),
