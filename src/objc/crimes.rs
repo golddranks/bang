@@ -477,16 +477,14 @@ impl<T, S> TypedCls<T, S> {
     }
 }
 
-impl<T, P: Protocol> TypedCls<T, P> {
-    pub fn make_class(name: &CStr) -> Option<Self> {
-        let cls = make_class(name)?;
-        Some(Self(cls, PhantomData))
-    }
-}
-
 impl<T, P: TypedPtr> TypedCls<T, P> {
     pub fn cls(&self) -> CPtr {
         self.0
+    }
+
+    pub fn make_class(name: &CStr) -> Option<Self> {
+        let cls = make_class(name)?;
+        Some(Self(cls, PhantomData))
     }
 
     pub fn alloc_init_upcasted(self, inner: T) -> P {
@@ -499,7 +497,7 @@ impl<T, P: TypedPtr> TypedCls<T, P> {
 
     pub fn alloc_upcasted(self, inner: T) -> AllocObj<P> {
         let mut alloc_obj = unsafe { self.0.alloc_indexed::<TypedObj<T>>(size_of::<T>()) };
-        let obj_inner = unsafe { (&mut alloc_obj.0).get_index_ivars() };
+        let obj_inner = unsafe { alloc_obj.0.get_index_ivars() };
         *obj_inner = inner;
         AllocObj(alloc_obj.0, PhantomData)
     }
@@ -517,6 +515,8 @@ pub trait InstancePtr: TypedPtr {
     }
 }
 
+/// # Safety
+/// Implementors must ensure that the type
 pub unsafe trait Protocol {
     fn new(obj: OPtr) -> Self;
 }

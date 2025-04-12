@@ -766,12 +766,6 @@ impl MTLCompileOptions::IPtr {
     }
 }
 
-unsafe impl Protocol for MTKViewDelegate::PPtr {
-    fn new(obj: OPtr) -> Self {
-        Self(obj)
-    }
-}
-
 impl MTKViewDelegate::PPtr {
     pub fn implement<T>(
         cls: &TypedCls<T, Self>,

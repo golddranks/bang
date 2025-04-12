@@ -99,7 +99,7 @@ pub fn init() {
         | NSWindowStyleMask::CLOSABLE
         | NSWindowStyleMask::MINIATURIZABLE
         | NSWindowStyleMask::RESIZABLE;
-    let title = NSString::IPtr::new(c"Hello, World!");
+    let title = NSString::IPtr::new(c"bang!");
 
     let win = my_win.alloc_upcasted(MyNSWindow);
     let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
