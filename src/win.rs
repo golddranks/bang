@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::{
     draw::DrawState,
     error::OrDie,
@@ -72,20 +74,25 @@ fn setup_main_menu(app: NSApplication::IPtr) {
     app_menu.add_item(quit_item);
     app_menu_item.set_submenu(app_menu);
     main_menu.add_item(app_menu_item);
-    app.set_main_menu(main_menu);
+    app.set_main_menu(Some(main_menu));
 }
 
-pub fn init() {
+pub fn init(end: &AtomicBool) {
+    dbg!("init");
     objc::init_objc();
 
+    dbg!("init");
     let win_dele_cls = WinState::init_delegate_cls();
     let view_dele_cls = DrawState::init_delegate_cls();
     let my_win = MyNSWindow::init_as_subclass();
 
+    dbg!("init");
     let app = NSApplication::IPtr::shared();
+    dbg!("app");
     app.set_activation_policy(NSApplicationActivationPolicy::Regular);
     setup_main_menu(app);
 
+    dbg!("after menu");
     let size = CGSize {
         width: 160.0,
         height: 100.0,
@@ -120,4 +127,5 @@ pub fn init() {
     win.set_content_min_size(size);
     win.set_content_aspect_ratio(size);
     app.run();
+    end.store(true, Ordering::Release);
 }

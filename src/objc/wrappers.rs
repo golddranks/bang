@@ -310,7 +310,7 @@ impl NSApplication::IPtr {
         unsafe { msg1::<(), OPtr>(self.0, sel::stop_.sel(), sender) };
     }
 
-    objc_prop_impl!(mainMenu, NSMenu::IPtr, main_menu, set_main_menu);
+    objc_prop_impl!(mainMenu, Option<NSMenu::IPtr>, main_menu, set_main_menu);
 }
 
 #[repr(i64)]
