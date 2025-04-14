@@ -49,7 +49,10 @@ impl Timer {
     pub fn wait_until_next(&mut self) {
         self.next += self.period;
         let instant_before_sleep = Instant::now();
-        sleep(self.next - instant_before_sleep - self.margin);
+        let time_left = self.next - instant_before_sleep;
+        if time_left >= self.margin {
+            sleep(time_left - self.margin);
+        }
 
         self.adjust_margin();
 
