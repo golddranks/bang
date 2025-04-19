@@ -3,8 +3,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::{
     draw::DrawState,
     error::OrDie,
+    keys::{Key, KeyState, KeyStateManager},
     objc::{
-        self, NSString, OPtr, Sel, TypedCls, TypedObj,
+        NSString, OPtr, Sel, TypedCls, TypedObj,
         wrappers::{
             CGPoint, CGRect, CGSize, MTKView, MTLDevice, NSApplication,
             NSApplicationActivationPolicy, NSBackingStoreType, NSEvent, NSMenu, NSMenuItem,
@@ -29,13 +30,24 @@ extern "C" fn win_did_resize(mut slf: TypedObj<WinState>, _sel: Sel, _notify: OP
     })
 }
 
-extern "C" fn key_down(_slf: TypedObj<()>, _sel: Sel, key: NSEvent::IPtr) {
-    dbg!(key.chars());
-    dbg!(key.chars_ignore_mod());
-    dbg!(key.key_code());
+extern "C" fn key_down(mut slf: TypedObj<MyNSWindow>, _sel: Sel, ev: NSEvent::IPtr) {
+    let my_win = slf.get_inner();
+    let key = Key::from_code(ev.key_code());
+    my_win
+        .state_man
+        .update(key, KeyState::Pressed, ev.timestamp());
 }
 
-extern "C" fn flags_changed(_slf: TypedObj<()>, _sel: Sel, flags: NSEvent::IPtr) {
+extern "C" fn key_up(mut slf: TypedObj<MyNSWindow>, _sel: Sel, ev: NSEvent::IPtr) {
+    let my_win = slf.get_inner();
+    let key = Key::from_code(ev.key_code());
+    my_win
+        .state_man
+        .update(key, KeyState::Released, ev.timestamp());
+}
+
+extern "C" fn flags_changed(mut slf: TypedObj<MyNSWindow>, _sel: Sel, flags: NSEvent::IPtr) {
+    let my_win = slf.get_inner();
     dbg!(flags.key_code());
     dbg!(flags.mod_flags());
 }
@@ -54,13 +66,22 @@ impl WinState {
 }
 
 #[derive(Debug)]
-struct MyNSWindow;
+struct MyNSWindow {
+    state_man: KeyStateManager,
+}
 
 impl MyNSWindow {
+    fn new() -> Self {
+        Self {
+            state_man: KeyStateManager::new(),
+        }
+    }
+
     fn init_as_subclass() -> TypedCls<MyNSWindow, NSWindow::IPtr> {
         let cls = TypedCls::make_subclass(NSWindow::cls(), c"MyNSWindow").or_die("UNREACHABLE");
         NSResponder::override_accepts_first_responder_as_true(cls.cls());
         NSResponder::override_key_down(cls.cls(), key_down);
+        NSResponder::override_key_up(cls.cls(), key_up);
         NSResponder::override_flag_changed(cls.cls(), flags_changed);
         cls
     }
@@ -78,21 +99,14 @@ fn setup_main_menu(app: NSApplication::IPtr) {
 }
 
 pub fn init(end: &AtomicBool) {
-    dbg!("init");
-    objc::init_objc();
-
-    dbg!("init");
     let win_dele_cls = WinState::init_delegate_cls();
     let view_dele_cls = DrawState::init_delegate_cls();
     let my_win = MyNSWindow::init_as_subclass();
 
-    dbg!("init");
     let app = NSApplication::IPtr::shared();
-    dbg!("app");
     app.set_activation_policy(NSApplicationActivationPolicy::Regular);
     setup_main_menu(app);
 
-    dbg!("after menu");
     let size = CGSize {
         width: 160.0,
         height: 100.0,
@@ -108,7 +122,7 @@ pub fn init(end: &AtomicBool) {
         | NSWindowStyleMask::RESIZABLE;
     let title = NSString::IPtr::new(c"bang!");
 
-    let win = my_win.alloc_upcasted(MyNSWindow);
+    let win = my_win.alloc_upcasted(MyNSWindow::new());
     let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
 
     let device = MTLDevice::PPtr::get_default();

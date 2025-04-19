@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::{ffi::CStr, fmt::Debug};
+use std::{ffi::CStr, fmt::Debug, ops::Add};
 
 use crate::objc::crimes::objc_prop_sel_init;
 
@@ -48,6 +48,7 @@ objc_class!(MTLCompileOptions);
 objc_class!(NSEvent);
 objc_class!(NSMenu);
 objc_class!(NSMenuItem);
+objc_class!(NSProcessInfo);
 
 objc_protocol!(MTLDevice);
 objc_protocol!(MTLCommandQueue);
@@ -150,11 +151,13 @@ pub mod sel {
     objc_prop_sel!(charactersIgnoringModifiers);
     objc_prop_sel!(keyCode);
     objc_prop_sel!(modifierFlags);
+    objc_prop_sel!(timestamp);
 
     // NSResponder
     objc_prop_sel!(acceptsFirstResponder);
     objc_sel!(flagsChanged_);
     objc_sel!(keyDown_);
+    objc_sel!(keyUp_);
 
     // NSMenu
     objc_sel!(initWithTitle_);
@@ -165,6 +168,10 @@ pub mod sel {
     // NSMenuItem
     objc_sel!(initWithTitle_action_keyEquivalent_);
     objc_prop_sel!(submenu);
+
+    // NSProcessInfo
+    objc_prop_sel!(processInfo);
+    objc_prop_sel!(systemUptime);
 }
 
 pub fn init_objc() {
@@ -184,6 +191,7 @@ pub fn init_objc() {
     NSEvent::init();
     NSMenu::init();
     NSMenuItem::init();
+    NSProcessInfo::init();
 
     // NSUrl
     sel::URLWithString_.init();
@@ -265,12 +273,14 @@ pub fn init_objc() {
     sel::windowDidEndLiveResize_.init();
     sel::windowShouldClose_.init();
     sel::keyDown_.init();
+    sel::keyUp_.init();
 
     // NSEvent
     objc_prop_sel_init!(characters);
     objc_prop_sel_init!(charactersIgnoringModifiers);
     objc_prop_sel_init!(keyCode);
     objc_prop_sel_init!(modifierFlags);
+    objc_prop_sel_init!(timestamp);
 
     // NSResponder
     objc_prop_sel_init!(acceptsFirstResponder);
@@ -285,6 +295,10 @@ pub fn init_objc() {
     // NSMenuItem
     sel::initWithTitle_action_keyEquivalent_.init();
     objc_prop_sel_init!(submenu);
+
+    // NSProcessInfo
+    objc_prop_sel_init!(processInfo);
+    objc_prop_sel_init!(systemUptime);
 }
 
 impl NSApplication::IPtr {
@@ -321,6 +335,28 @@ pub enum NSApplicationActivationPolicy {
 #[repr(i64)]
 pub enum NSBackingStoreType {
     Buffered = 2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct NSTimeInterval(f64);
+
+impl Add<f64> for NSTimeInterval {
+    type Output = Self;
+
+    fn add(self, other: f64) -> Self {
+        Self(self.0 + other)
+    }
+}
+
+impl NSTimeInterval {
+    pub fn to_u64(self) -> u64 {
+        u64::from_ne_bytes(self.0.to_ne_bytes())
+    }
+
+    pub fn from_u64(value: u64) -> Self {
+        Self(f64::from_ne_bytes(value.to_ne_bytes()))
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -816,6 +852,7 @@ impl NSEvent::IPtr {
     );
     objc_prop_impl!(keyCode, u16, key_code);
     objc_prop_impl!(modifierFlags, NSEventModifierFlags, mod_flags);
+    objc_prop_impl!(timestamp, NSTimeInterval, timestamp);
 }
 
 pub struct NSResponder;
@@ -827,6 +864,12 @@ impl NSResponder {
     ) {
         unsafe {
             cls.add_method1(sel::keyDown_.sel(), key_down, c"v@:@");
+        }
+    }
+
+    pub fn override_key_up<T>(cls: CPtr, key_up: extern "C" fn(TypedObj<T>, Sel, NSEvent::IPtr)) {
+        unsafe {
+            cls.add_method1(sel::keyUp_.sel(), key_up, c"v@:@");
         }
     }
 
@@ -927,4 +970,14 @@ impl NSMenuItem::IPtr {
 
     objc_prop_impl!(title, NSString::IPtr, title, set_title);
     objc_prop_impl!(submenu, NSMenu::IPtr, submenu, set_submenu);
+}
+
+impl NSProcessInfo::IPtr {
+    pub fn process_info() -> Self {
+        unsafe {
+            msg0::<NSProcessInfo::IPtr>(NSProcessInfo::cls().obj(), sel::processInfo::GETTER.sel())
+        }
+    }
+
+    objc_prop_impl!(systemUptime, NSTimeInterval, system_uptime);
 }
