@@ -80,18 +80,18 @@ impl DrawState {
 
         let desc = MTLRenderPipelineDescriptor::IPtr::new();
 
-        let mut source =
-            std::fs::read_to_string("src/shaders.metal").or_die("Failed to read shader source");
-        source.push('\0');
-        let source = NSString::IPtr::new(
-            &CString::from_vec_with_nul(source.into_bytes()).expect("UNREACHABLE"),
-        );
         let options = MTLCompileOptions::IPtr::new();
 
         let lib = match device.new_lib_with_url(NSUrl::IPtr::new(c"target/shaders.metallib")) {
             Ok(lib) => lib,
             Err(_) => {
                 eprintln!("Couldn't find precompiled shaders, compiling from source...");
+                let mut source = std::fs::read_to_string("bang_rt/src/shaders.metal")
+                    .or_die("Failed to read shader source");
+                source.push('\0');
+                let source = NSString::IPtr::new(
+                    &CString::from_vec_with_nul(source.into_bytes()).expect("UNREACHABLE"),
+                );
                 let lib = device
                     .new_lib_from_source(source, options)
                     .or_die("failed to create library");

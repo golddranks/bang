@@ -4,6 +4,8 @@ use std::{
     sync::atomic::{AtomicPtr, Ordering},
 };
 
+pub use bang_core::keys::{Key, KeyState, KeysState};
+
 use crate::{objc::wrappers::NSTimeInterval, timer::Timer};
 
 static KEY_STATE_GATHER: AtomicPtr<KeysState> = AtomicPtr::new(null_mut());
@@ -52,87 +54,5 @@ impl KeyStateManager {
             unreachable!();
         }
         gathered
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum KeyState {
-    Pressed,
-    Down,
-    Released,
-    Up,
-}
-
-impl KeyState {
-    fn relax(&mut self) {
-        match self {
-            KeyState::Pressed => *self = KeyState::Down,
-            KeyState::Down => *self = KeyState::Down,
-            KeyState::Released => *self = KeyState::Up,
-            KeyState::Up => *self = KeyState::Up,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct KeysState {
-    pub space: KeyState,
-    pub up: KeyState,
-    pub down: KeyState,
-    pub left: KeyState,
-    pub right: KeyState,
-}
-
-impl KeysState {
-    fn relax(&mut self) {
-        self.space.relax();
-        self.up.relax();
-        self.down.relax();
-        self.left.relax();
-        self.right.relax();
-    }
-
-    pub const fn new() -> Self {
-        KeysState {
-            space: KeyState::Up,
-            up: KeyState::Up,
-            down: KeyState::Up,
-            left: KeyState::Up,
-            right: KeyState::Up,
-        }
-    }
-
-    pub fn update(&mut self, key: Key, state: KeyState) {
-        match key {
-            Key::Space => self.space = state,
-            Key::Up => self.up = state,
-            Key::Down => self.down = state,
-            Key::Left => self.left = state,
-            Key::Right => self.right = state,
-            Key::Other => {}
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum Key {
-    Space,
-    Up,
-    Down,
-    Left,
-    Right,
-    Other,
-}
-
-impl Key {
-    pub fn from_code(code: u16) -> Self {
-        match code {
-            49 => Key::Space,
-            126 => Key::Up,
-            125 => Key::Down,
-            123 => Key::Left,
-            124 => Key::Right,
-            _ => Key::Other,
-        }
     }
 }

@@ -1,5 +1,10 @@
 #![allow(dead_code)]
-use std::{ffi::CStr, fmt::Debug, ops::Add};
+use std::{
+    error::Error,
+    ffi::CStr,
+    fmt::{Debug, Display},
+    ops::Add,
+};
 
 use crate::objc::crimes::objc_prop_sel_init;
 
@@ -67,6 +72,9 @@ pub mod sel {
     // misc
     objc_prop_sel!(delegate);
     objc_prop_sel!(title);
+
+    // NSError
+    objc_prop_sel!(code);
 
     // NSUrl
     objc_sel!(URLWithString_);
@@ -193,6 +201,9 @@ pub fn init_objc() {
     NSMenuItem::init();
     NSProcessInfo::init();
 
+    // NSError
+    objc_prop_sel_init!(code);
+
     // NSUrl
     sel::URLWithString_.init();
 
@@ -300,6 +311,18 @@ pub fn init_objc() {
     objc_prop_sel_init!(processInfo);
     objc_prop_sel_init!(systemUptime);
 }
+
+impl NSError::IPtr {
+    objc_prop_impl!(code, NSInteger, code);
+}
+
+impl Display for NSError::IPtr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.code())
+    }
+}
+
+impl Error for NSError::IPtr {}
 
 impl NSApplication::IPtr {
     pub fn shared() -> NSApplication::IPtr {

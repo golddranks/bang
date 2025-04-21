@@ -47,7 +47,7 @@ extern "C" fn key_up(mut slf: TypedObj<MyNSWindow>, _sel: Sel, ev: NSEvent::IPtr
 }
 
 extern "C" fn flags_changed(mut slf: TypedObj<MyNSWindow>, _sel: Sel, flags: NSEvent::IPtr) {
-    let my_win = slf.get_inner();
+    let _my_win = slf.get_inner(); // TODO
     dbg!(flags.key_code());
     dbg!(flags.mod_flags());
 }
@@ -98,48 +98,59 @@ fn setup_main_menu(app: NSApplication::IPtr) {
     app.set_main_menu(Some(main_menu));
 }
 
-pub fn init(end: &AtomicBool) {
-    let win_dele_cls = WinState::init_delegate_cls();
-    let view_dele_cls = DrawState::init_delegate_cls();
-    let my_win = MyNSWindow::init_as_subclass();
+pub struct Window {
+    app: NSApplication::IPtr,
+    end: &'static AtomicBool,
+}
 
-    let app = NSApplication::IPtr::shared();
-    app.set_activation_policy(NSApplicationActivationPolicy::Regular);
-    setup_main_menu(app);
+impl Window {
+    pub fn init(end: &'static AtomicBool) -> Self {
+        let win_dele_cls = WinState::init_delegate_cls();
+        let view_dele_cls = DrawState::init_delegate_cls();
+        let my_win = MyNSWindow::init_as_subclass();
 
-    let size = CGSize {
-        width: 160.0,
-        height: 100.0,
-    };
+        let app = NSApplication::IPtr::shared();
+        app.set_activation_policy(NSApplicationActivationPolicy::Regular);
+        setup_main_menu(app);
 
-    let rect = CGRect {
-        origin: CGPoint { x: 200.0, y: 200.0 },
-        size,
-    };
-    let style_mask = NSWindowStyleMask::TITLED
-        | NSWindowStyleMask::CLOSABLE
-        | NSWindowStyleMask::MINIATURIZABLE
-        | NSWindowStyleMask::RESIZABLE;
-    let title = NSString::IPtr::new(c"bang!");
+        let size = CGSize {
+            width: 160.0,
+            height: 100.0,
+        };
 
-    let win = my_win.alloc_upcasted(MyNSWindow::new());
-    let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
+        let rect = CGRect {
+            origin: CGPoint { x: 200.0, y: 200.0 },
+            size,
+        };
+        let style_mask = NSWindowStyleMask::TITLED
+            | NSWindowStyleMask::CLOSABLE
+            | NSWindowStyleMask::MINIATURIZABLE
+            | NSWindowStyleMask::RESIZABLE;
+        let title = NSString::IPtr::new(c"bang!");
 
-    let device = MTLDevice::PPtr::get_default();
+        let win = my_win.alloc_upcasted(MyNSWindow::new());
+        let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
 
-    let alloc = MTKView::alloc();
-    let view = MTKView::IPtr::init(alloc, rect, device);
-    let dele = DrawState::new(device, view.color_pixel_fmt());
-    view.set_preferred_fps(120);
-    view.set_delegate(view_dele_cls.alloc_init_upcasted(dele));
-    win.set_delegate(win_dele_cls.alloc_init_upcasted(WinState { win }));
-    win.set_content_view(view);
-    win.set_title(title);
-    win.set_is_visible(true);
-    win.set_main();
-    win.center();
-    win.set_content_min_size(size);
-    win.set_content_aspect_ratio(size);
-    app.run();
-    end.store(true, Ordering::Release);
+        let device = MTLDevice::PPtr::get_default();
+
+        let alloc = MTKView::alloc();
+        let view = MTKView::IPtr::init(alloc, rect, device);
+        let dele = DrawState::new(device, view.color_pixel_fmt());
+        view.set_preferred_fps(120);
+        view.set_delegate(view_dele_cls.alloc_init_upcasted(dele));
+        win.set_delegate(win_dele_cls.alloc_init_upcasted(WinState { win }));
+        win.set_content_view(view);
+        win.set_title(title);
+        win.set_is_visible(true);
+        win.set_main();
+        win.center();
+        win.set_content_min_size(size);
+        win.set_content_aspect_ratio(size);
+        Window { app, end }
+    }
+
+    pub fn run(&self) {
+        self.app.run();
+        self.end.store(true, Ordering::Release);
+    }
 }

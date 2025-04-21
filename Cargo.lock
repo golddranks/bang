@@ -3,5 +3,19 @@
 version = 4
 
 [[package]]
-name = "bang"
+name = "bang_core"
 version = "0.1.0"
+
+[[package]]
+name = "bang_rt"
+version = "0.1.0"
+dependencies = [
+ "bang_core",
+]
+
+[[package]]
+name = "demo"
+version = "0.1.0"
+dependencies = [
+ "bang_core",
+]
