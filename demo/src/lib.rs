@@ -1,6 +1,6 @@
-use bang_core::{DrawFrame, GameState, KeysState, export_frame_logic};
+use bang_core::{DrawFrame, GameState, InputState, export_frame_logic};
 
-fn frame_logic(_input: &KeysState, _game_state: &mut GameState) -> DrawFrame {
+fn frame_logic(_input: &InputState, _game_state: &mut GameState) -> DrawFrame {
     // TODO
     dbg!("frame_logic");
     DrawFrame::debug_dummies(&[])

@@ -21,7 +21,7 @@ impl KeyState {
 
 #[derive(Debug, Clone, Default)]
 #[repr(C)]
-pub struct KeysState {
+pub struct InputState {
     pub space: KeyState,
     pub up: KeyState,
     pub down: KeyState,
@@ -29,7 +29,7 @@ pub struct KeysState {
     pub right: KeyState,
 }
 
-impl KeysState {
+impl InputState {
     pub fn relax(&mut self) {
         self.space.relax();
         self.up.relax();
@@ -39,7 +39,7 @@ impl KeysState {
     }
 
     pub const fn new() -> Self {
-        KeysState {
+        InputState {
             space: KeyState::Up,
             up: KeyState::Up,
             down: KeyState::Up,

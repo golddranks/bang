@@ -1,7 +1,7 @@
 pub mod keys;
 pub mod num;
 
-pub use keys::KeysState;
+pub use keys::InputState;
 
 use num::F;
 
@@ -55,8 +55,8 @@ impl DrawFrame {
     }
 }
 
-pub type FrameLogicExternFn = extern "Rust" fn(&KeysState, &mut GameState) -> DrawFrame;
-pub type FrameLogicFn = fn(&KeysState, &mut GameState) -> DrawFrame;
+pub type FrameLogicExternFn = extern "Rust" fn(&InputState, &mut GameState) -> DrawFrame;
+pub type FrameLogicFn = fn(&InputState, &mut GameState) -> DrawFrame;
 
 #[derive(Debug, Default)]
 #[repr(C)]
@@ -73,7 +73,7 @@ macro_rules! export_frame_logic {
     ($impl:ident) => {
         #[unsafe(export_name = "frame_logic")]
         pub extern "Rust" fn frame_logic_no_mangle(
-            input: &KeysState,
+            input: &InputState,
             game_state: &mut GameState,
         ) -> DrawFrame {
             let implementation: bang_core::FrameLogicFn = $impl;

@@ -4,11 +4,11 @@ use std::{
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-pub use bang_core::keys::{Key, KeyState, KeysState};
+pub use bang_core::keys::{InputState, Key, KeyState};
 
 use crate::{objc::wrappers::NSTimeInterval, timer::Timer};
 
-static KEY_STATE_GATHER: AtomicPtr<KeysState> = AtomicPtr::new(null_mut());
+static KEY_STATE_GATHER: AtomicPtr<InputState> = AtomicPtr::new(null_mut());
 
 #[derive(Debug)]
 pub struct KeyStateManager {
@@ -17,7 +17,10 @@ pub struct KeyStateManager {
 
 impl KeyStateManager {
     pub fn new() -> Self {
-        KEY_STATE_GATHER.store(Box::into_raw(Box::new(KeysState::new())), Ordering::Release);
+        KEY_STATE_GATHER.store(
+            Box::into_raw(Box::new(InputState::new())),
+            Ordering::Release,
+        );
         KeyStateManager {
             event_queue: VecDeque::new(),
         }
@@ -36,7 +39,7 @@ impl KeyStateManager {
         }
     }
 
-    pub fn state_swap(mut old_state: Box<KeysState>) -> Box<KeysState> {
+    pub fn state_swap(mut old_state: Box<InputState>) -> Box<InputState> {
         while KEY_STATE_GATHER.load(Ordering::Acquire).is_null() {} // Wait for initialization
         let gathered =
             unsafe { Box::from_raw(KEY_STATE_GATHER.swap(null_mut(), Ordering::AcqRel)) };

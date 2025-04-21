@@ -14,14 +14,14 @@ mod objc;
 mod timer;
 mod win;
 
-pub use keys::KeysState;
+pub use keys::InputState;
 
 use keys::KeyStateManager;
 use timer::Timer;
 use win::Window;
 
 fn logic_loop(end: &AtomicBool, frame_logic: FrameLogicFn) {
-    let mut keys = Box::new(KeysState::new());
+    let mut keys = Box::new(InputState::new());
     let mut timer = Timer::new(120);
     let mut game_state = GameState::new();
     while end.load(Ordering::Acquire).not() {
