@@ -53,7 +53,7 @@ impl<'s, 'f, T> FrameVec<'s, 'f, T> {
     }
 
     pub fn into_slice(self) -> &'f [T] {
-        unsafe { &*slice_from_raw_parts(self.vec.as_ptr() as *const T, self.vec.len()) }
+        unsafe { &*slice_from_raw_parts(self.vec.as_ptr(), self.vec.len()) }
     }
 }
 

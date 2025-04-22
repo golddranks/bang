@@ -2,7 +2,7 @@ use bang_core::{
     alloc::Alloc, draw::DrawFrame, export_frame_logic, game::GameState, input::InputState,
 };
 
-fn frame_logic<'f>(
+pub fn frame_logic<'f>(
     alloc: &mut Alloc<'f>,
     input: &InputState,
     _game_state: &mut GameState,

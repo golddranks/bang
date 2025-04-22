@@ -4,7 +4,11 @@ use std::{
     thread,
 };
 
-use bang_core::{alloc::AllocManager, ffi::FrameLogicFn, game::GameState};
+use bang_core::{
+    alloc::AllocManager,
+    ffi::{FrameLogicExternFn, FrameLogicFn},
+    game::GameState,
+};
 
 mod draw;
 mod error;
@@ -35,10 +39,18 @@ fn logic_loop(end: &AtomicBool, frame_logic: FrameLogicFn) {
 
 static END: AtomicBool = AtomicBool::new(false);
 
-pub fn start_runtime(libname: &str) {
+pub fn start_runtime_with_dynamic(libname: &str) {
+    let frame_logic = load::get_frame_logic(libname);
+    main_loops(frame_logic);
+}
+
+pub fn start_runtime_with_static(frame_logic: FrameLogicExternFn) {
+    main_loops(frame_logic);
+}
+
+fn main_loops(frame_logic: FrameLogicExternFn) {
     objc::init_objc();
 
-    let frame_logic = load::get_frame_logic(libname);
     let window = Window::init(&END);
 
     thread::scope(|s| {

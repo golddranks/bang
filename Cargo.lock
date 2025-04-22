@@ -14,8 +14,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "demo"
+name = "demo_impl"
 version = "0.1.0"
 dependencies = [
  "bang_core",
+]
+
+[[package]]
+name = "demo_runner"
+version = "0.1.0"
+dependencies = [
+ "bang_rt",
+ "demo_impl",
 ]

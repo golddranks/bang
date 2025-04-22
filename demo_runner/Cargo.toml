@@ -1,0 +1,8 @@
+[package]
+name = "demo_runner"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bang_rt = { path = "../bang_rt" }
+demo_impl = { path = "../demo_impl" }
