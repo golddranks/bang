@@ -4,7 +4,7 @@ use std::{
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-pub use bang_core::keys::{InputState, Key, KeyState};
+pub use bang_core::input::{InputState, Key, KeyState};
 
 use crate::{objc::wrappers::NSTimeInterval, timer::Timer};
 

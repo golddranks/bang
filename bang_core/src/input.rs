@@ -17,6 +17,14 @@ impl KeyState {
             KeyState::Up => *self = KeyState::Up,
         }
     }
+
+    pub fn down(&self) -> bool {
+        matches!(self, KeyState::Down | KeyState::Pressed)
+    }
+
+    pub fn up(&self) -> bool {
+        matches!(self, KeyState::Up | KeyState::Released)
+    }
 }
 
 #[derive(Debug, Clone, Default)]

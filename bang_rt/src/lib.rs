@@ -4,7 +4,7 @@ use std::{
     thread,
 };
 
-use bang_core::{AllocManager, FrameLogicFn, GameState};
+use bang_core::{alloc::AllocManager, ffi::FrameLogicFn, game::GameState};
 
 mod draw;
 mod error;

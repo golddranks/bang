@@ -1,9 +1,9 @@
 use std::{
-    ffi::{CStr, c_char, c_int, c_void},
+    ffi::{CStr, CString, c_char, c_int, c_void},
     ptr::NonNull,
 };
 
-use bang_core::FrameLogicExternFn;
+use bang_core::{ffi::FrameLogicExternFn, frame_logic_sym_name};
 
 use crate::error::OrDie;
 
@@ -18,7 +18,9 @@ pub fn get_frame_logic(libname: &str) -> FrameLogicExternFn {
     let libname = format!("lib{}.dylib\0", libname);
     let libname = CStr::from_bytes_with_nul(libname.as_bytes()).expect("UNREACHABLE");
     let lib_ptr = dlopen(libname.as_ptr(), RTLD_LAZY).or_die("Failed to load library");
-    let frame_logic_ptr =
-        dlsym(lib_ptr, c"frame_logic".as_ptr()).or_die("Failed to find frame_logic symbol");
+    let sym_name = CString::new(frame_logic_sym_name!()).expect("UNREACHABLE");
+    let Some(frame_logic_ptr) = dlsym(lib_ptr, sym_name.as_ptr()) else {
+        panic!("Failed to find symbol: {:?}", sym_name);
+    };
     unsafe { std::mem::transmute::<NonNull<c_void>, FrameLogicExternFn>(frame_logic_ptr) }
 }

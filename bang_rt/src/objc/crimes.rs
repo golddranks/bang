@@ -521,6 +521,7 @@ pub unsafe trait Protocol {
     fn new(obj: OPtr) -> Self;
 }
 
+#[macro_export]
 macro_rules! c_stringify {
     ($str:expr) => {
         const {
@@ -536,7 +537,7 @@ macro_rules! objc_sel {
     ( $sel:ident ) => {
         #[allow(nonstandard_style)]
         pub static $sel: crate::objc::crimes::StaticSelPtr =
-            crate::objc::crimes::StaticSelPtr::new(crate::objc::crimes::c_stringify!($sel));
+            crate::objc::crimes::StaticSelPtr::new(crate::c_stringify!($sel));
     };
 }
 
@@ -545,9 +546,9 @@ macro_rules! objc_prop_sel {
         #[allow(nonstandard_style)]
         pub mod $prop {
             pub static GETTER: crate::objc::crimes::StaticSelPtr =
-                crate::objc::crimes::StaticSelPtr::new(crate::objc::crimes::c_stringify!($prop));
+                crate::objc::crimes::StaticSelPtr::new(crate::c_stringify!($prop));
             pub static SETTER: crate::objc::crimes::StaticSelPtr =
-                crate::objc::crimes::StaticSelPtr::new(crate::objc::crimes::c_stringify!($prop));
+                crate::objc::crimes::StaticSelPtr::new(crate::c_stringify!($prop));
         }
     };
 }
@@ -581,7 +582,7 @@ macro_rules! objc_class {
         #[allow(nonstandard_style)]
         pub mod $type {
             use crate::objc::crimes::{
-                CPtr, InstancePtr, OPtr, StaticClsPtr, TypedPtr, c_stringify, AllocObj
+                CPtr, InstancePtr, OPtr, StaticClsPtr, TypedPtr, AllocObj
             };
             #[derive $derives ]
             #[repr(transparent)]
@@ -618,7 +619,7 @@ macro_rules! objc_class {
                 IPtr::alloc()
             }
 
-            pub static CLS: StaticClsPtr = StaticClsPtr::new(c_stringify!($cls));
+            pub static CLS: StaticClsPtr = StaticClsPtr::new(crate::c_stringify!($cls));
         }
     };
 }
@@ -656,7 +657,6 @@ macro_rules! derive_BitOr {
     };
 }
 
-pub(crate) use c_stringify;
 pub(crate) use derive_BitOr;
 pub(crate) use objc_class;
 pub(crate) use objc_prop_impl;
