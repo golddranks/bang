@@ -4,7 +4,7 @@ use std::{
     thread,
 };
 
-use bang_core::{FrameLogicFn, GameState};
+use bang_core::{AllocManager, FrameLogicFn, GameState};
 
 mod draw;
 mod error;
@@ -24,10 +24,12 @@ fn logic_loop(end: &AtomicBool, frame_logic: FrameLogicFn) {
     let mut keys = Box::new(InputState::new());
     let mut timer = Timer::new(120);
     let mut game_state = GameState::new();
+    let mut alloc_manager = AllocManager::new();
     while end.load(Ordering::Acquire).not() {
         timer.wait_until_next();
         keys = KeyStateManager::state_swap(keys);
-        let _frame = frame_logic(&keys, &mut game_state); // TODO
+        let mut alloc = alloc_manager.frame_alloc();
+        let _frame = frame_logic(&mut alloc, &keys, &mut game_state); // TODO
     }
 }
 
