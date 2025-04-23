@@ -2,8 +2,11 @@
 
 ## Currently working on
 
-- Draw sender/receiver
-- Make allocator work with sender/receiver
+- Figure out single object allocation strategy
+- Make draw sender/receiver work (with boxing, allocation etc.)
+- Make allocator work with sender/receiver (with frame-lifetime allocs)
+
+- Actually draw according to the sent data
 
 ## Short term
 

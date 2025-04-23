@@ -4,11 +4,7 @@ use std::{
     thread,
 };
 
-use bang_core::{
-    alloc::AllocManager,
-    ffi::{FrameLogicExternFn, FrameLogicFn},
-    game::GameState,
-};
+use bang_core::{alloc::AllocManager, game::GameState};
 
 mod draw;
 mod error;
@@ -20,10 +16,17 @@ mod win;
 
 use draw::{DrawSender, SharedDrawState, new_draw_pair};
 use input::{InputConsumer, SharedInputState, new_input_pair};
+use load::FrameLogic;
 use timer::Timer;
 use win::Window;
 
-fn logic_loop(frame_logic: FrameLogicFn, mut consumer: InputConsumer, sender: DrawSender) {
+pub use load::as_frame_logic;
+
+fn logic_loop<'l>(
+    frame_logic: impl FrameLogic<'l>,
+    mut consumer: InputConsumer,
+    mut sender: DrawSender,
+) {
     let mut timer = Timer::new(120);
     let mut game_state = GameState::new();
     let mut alloc_manager = AllocManager::new();
@@ -31,8 +34,9 @@ fn logic_loop(frame_logic: FrameLogicFn, mut consumer: InputConsumer, sender: Dr
         let next_deadline = timer.wait_until_next();
         let keys = consumer.consume_gathered(next_deadline);
         let mut alloc = alloc_manager.frame_alloc();
-        let frame = frame_logic(&mut alloc, &keys, &mut game_state);
-        sender.send(frame);
+        let draw_frame = frame_logic.call(&mut alloc, &keys, &mut game_state);
+        let draw_frame = alloc.frame(draw_frame);
+        sender.send(draw_frame);
     }
 }
 
@@ -52,11 +56,11 @@ pub fn start_runtime_with_dynamic(libname: &str) {
     main_loops(frame_logic);
 }
 
-pub fn start_runtime_with_static(frame_logic: FrameLogicExternFn) {
+pub fn start_runtime_with_static<'l>(frame_logic: impl FrameLogic<'l>) {
     main_loops(frame_logic);
 }
 
-fn main_loops(frame_logic: FrameLogicExternFn) {
+fn main_loops<'l>(frame_logic: impl FrameLogic<'l>) {
     objc::init_objc();
 
     let mut shared_input_state = SharedInputState::new();

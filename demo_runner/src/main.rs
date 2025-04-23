@@ -1,7 +1,8 @@
-use bang_rt::start_runtime_with_static;
-use demo_impl::frame_logic_no_mangle;
+use bang_rt::{as_frame_logic, start_runtime_with_static};
+use demo_impl::frame_logic;
 
 fn main() {
     eprintln!("Running statically");
-    start_runtime_with_static(frame_logic_no_mangle);
+    let fl = as_frame_logic(frame_logic);
+    start_runtime_with_static(fl);
 }

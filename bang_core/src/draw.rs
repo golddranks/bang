@@ -27,6 +27,10 @@ pub struct DrawFrame<'f> {
 }
 
 impl<'f> DrawFrame<'f> {
+    pub fn dummy() -> Self {
+        Self { cmds: &[] }
+    }
+
     pub fn debug_dummies(alloc: &mut Alloc<'f>, dummies: &[(f32, f32)]) -> Self {
         let mut pos_vec = alloc.frame_vec();
         for &(x, y) in dummies {

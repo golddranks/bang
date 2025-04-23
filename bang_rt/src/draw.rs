@@ -1,5 +1,7 @@
 use std::{
     ffi::CString,
+    mem::transmute,
+    ops::Not,
     ptr::null_mut,
     sync::atomic::{AtomicPtr, Ordering},
 };
@@ -20,17 +22,13 @@ use crate::{
 
 #[derive(Debug)]
 pub struct SharedDrawState<'l> {
-    frame_a: AtomicPtr<DrawFrame<'l>>,
-    frame_b: AtomicPtr<DrawFrame<'l>>,
-    current: AtomicPtr<AtomicPtr<DrawFrame<'l>>>,
+    fresh: AtomicPtr<DrawFrame<'l>>,
 }
 
 impl<'l> SharedDrawState<'l> {
     pub fn new() -> Self {
         Self {
-            frame_a: AtomicPtr::new(std::ptr::null_mut()),
-            frame_b: AtomicPtr::new(std::ptr::null_mut()),
-            current: AtomicPtr::new(null_mut()),
+            fresh: AtomicPtr::new(null_mut()),
         }
     }
 }
@@ -43,6 +41,8 @@ pub struct DrawSender<'l> {
 #[derive(Debug)]
 pub struct DrawReceiver<'l> {
     shared: &'l SharedDrawState<'l>,
+    fresh: DrawFrame<'l>,
+    tired: Box<DrawFrame<'l>>,
 }
 
 pub fn new_draw_pair<'l>(
@@ -50,26 +50,33 @@ pub fn new_draw_pair<'l>(
 ) -> (DrawSender<'l>, DrawReceiver<'l>) {
     let shared = &*shared;
     let sender = DrawSender { shared };
-    let receiver = DrawReceiver { shared };
+    let receiver = DrawReceiver {
+        shared,
+        fresh: DrawFrame::dummy(),
+        tired: Box::new(DrawFrame::dummy()),
+    };
     (sender, receiver)
 }
 
 impl<'l> DrawSender<'l> {
-    pub fn send(&self, frame: DrawFrame<'l>) {
-        let current = self.shared.current.load(Ordering::Relaxed);
-        let next = if current == &raw mut self.shared.frame_a {
-            &raw mut self.shared.frame_b
-        } else {
-            &raw mut self.shared.frame_a
-        };
-        self.shared.current.store(next, Ordering::Relaxed);
-        unsafe {
-            (*next).as_mut() = frame;
-        }
+    pub fn send<'f>(&mut self, frame: &'f DrawFrame<'f>) {
+        let perennial_frame = unsafe { transmute::<&'f DrawFrame<'f>, &'l DrawFrame<'l>>(frame) }; // TODO: explain why this crime is OK
+        self.shared.fresh.swap(
+            &raw const *perennial_frame as *mut DrawFrame<'l>,
+            Ordering::Release,
+        );
     }
 }
 
-impl<'l> DrawReceiver<'l> {}
+impl<'l> DrawReceiver<'l> {
+    fn get_fresh<'f>(&mut self) -> DrawFrame<'f> {
+        let freshest = self.shared.fresh.swap(null_mut(), Ordering::Acquire);
+        if freshest.is_null().not() {
+            self.fresh = *freshest;
+        }
+        todo!()
+    }
+}
 
 #[derive(Debug)]
 pub struct DrawState<'l> {
@@ -82,6 +89,7 @@ pub struct DrawState<'l> {
 
 extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr) {
     let state = dele.get_inner();
+    let frame = state.receiver.get_fresh();
 
     let phase = state.frame % 100;
     let color_phase = 0.01 * phase as f64;

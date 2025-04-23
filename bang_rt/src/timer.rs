@@ -6,8 +6,6 @@ use std::{
 use crate::objc::wrappers::{NSProcessInfo, NSTimeInterval};
 
 pub struct Timer {
-    start_instant: Instant,
-    start_sys: NSTimeInterval,
     period: Duration,
     margin: Duration,
     early_threshold: Duration,
@@ -18,10 +16,7 @@ pub struct Timer {
 impl Timer {
     pub fn new(target_fps: u64) -> Self {
         let period = Duration::from_secs_f64(1.0 / target_fps as f64);
-        let process_info = NSProcessInfo::IPtr::process_info();
         Self {
-            start_instant: Instant::now(),
-            start_sys: process_info.system_uptime(),
             period,
             margin: Duration::from_micros(3500),
             early_threshold: Duration::from_micros(200),

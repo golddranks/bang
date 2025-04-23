@@ -67,6 +67,7 @@ pub struct Alloc<'f> {
     in_use: usize,
     vecs: Vec<Vec<Dummy>>,
     _marker: PhantomData<&'f ()>,
+    singles: Vec<Dummy>,
 }
 
 impl<'f> Alloc<'f> {
@@ -85,6 +86,13 @@ impl<'f> Alloc<'f> {
             _s_marker: PhantomData,
             _f_marker: PhantomData,
         }
+    }
+
+    pub fn frame<T>(&mut self, val: T) -> &'f mut T {
+        assert!(align_of::<T>() <= 8);
+
+        self.singles.push(Dummy);
+        todo!() // TODO
     }
 
     pub fn new() -> Self {

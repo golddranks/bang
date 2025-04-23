@@ -103,7 +103,7 @@ fn setup_main_menu(app: NSApplication::IPtr) {
 
 pub struct Window<'l> {
     app: NSApplication::IPtr,
-    win: NSWindow::IPtr,
+    _win: NSWindow::IPtr,
     _marker: PhantomData<&'l ()>,
 }
 
@@ -152,7 +152,7 @@ impl<'l> Window<'l> {
         win.set_content_aspect_ratio(size);
         Window {
             app,
-            win,
+            _win: win,
             _marker: PhantomData,
         }
     }

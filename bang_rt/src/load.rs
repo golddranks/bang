@@ -28,9 +28,9 @@ pub fn get_frame_logic(libname: &str) -> FrameLogicExternFn {
     unsafe { std::mem::transmute::<NonNull<c_void>, FrameLogicExternFn>(frame_logic_ptr) }
 }
 
-trait FrameLogic<'f> {
+pub trait FrameLogic<'f>: Send {
     fn call(
-        self,
+        &self,
         alloc: &mut Alloc<'f>,
         input: &InputState,
         game_state: &mut GameState,
@@ -39,11 +39,34 @@ trait FrameLogic<'f> {
 
 impl<'f> FrameLogic<'f> for FrameLogicExternFn<'f> {
     fn call(
-        self,
+        &self,
         alloc: &mut Alloc<'f>,
         input: &InputState,
         game_state: &mut GameState,
     ) -> DrawFrame<'f> {
         self(alloc, input, game_state)
+    }
+}
+
+struct InlinedFrameLogic<F> {
+    f: F,
+}
+
+pub fn as_frame_logic<F>(f: F) -> InlinedFrameLogic<F> {
+    InlinedFrameLogic { f }
+}
+
+impl<'f, F> FrameLogic<'f> for InlinedFrameLogic<F>
+where
+    F: Send,
+    F: Fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>,
+{
+    fn call(
+        &self,
+        alloc: &mut Alloc<'f>,
+        input: &InputState,
+        game_state: &mut GameState,
+    ) -> DrawFrame<'f> {
+        (self.f)(alloc, input, game_state)
     }
 }
