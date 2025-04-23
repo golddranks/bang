@@ -1,6 +1,6 @@
-use std::{error::Error, fmt::Display, sync::atomic::Ordering};
+use std::{error::Error, fmt::Display};
 
-use crate::END;
+use crate::soft_quit;
 
 #[derive(Debug, Clone, Copy)]
 struct NoneError;
@@ -25,7 +25,7 @@ impl Display for FalseError {
 impl Error for FalseError {}
 
 fn die(err: impl Error, msg: &str) -> ! {
-    END.store(true, Ordering::Release);
+    soft_quit();
     panic!("{}: {}", msg, err);
 }
 

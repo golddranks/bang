@@ -1,17 +1,19 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::marker::PhantomData;
 
 use crate::{
-    draw::DrawState,
+    draw::{DrawReceiver, DrawState},
     error::OrDie,
-    keys::{Key, KeyState, KeyStateManager},
+    input::{InputGatherer, Key, KeyState},
     objc::{
-        NSString, OPtr, Sel, TypedCls, TypedObj,
+        NSString, OPtr, Sel, TypedCls, TypedObj, TypedPtr,
         wrappers::{
             CGPoint, CGRect, CGSize, MTKView, MTLDevice, NSApplication,
             NSApplicationActivationPolicy, NSBackingStoreType, NSEvent, NSMenu, NSMenuItem,
             NSResponder, NSWindow, NSWindowDelegate, NSWindowStyleMask, sel,
         },
     },
+    soft_quit,
+    timer::TimeConverter,
 };
 
 extern "C" fn win_should_close(_slf: TypedObj<WinState>, _sel: Sel, sender: OPtr) -> bool {
@@ -33,17 +35,15 @@ extern "C" fn win_did_resize(mut slf: TypedObj<WinState>, _sel: Sel, _notify: OP
 extern "C" fn key_down(mut slf: TypedObj<MyNSWindow>, _sel: Sel, ev: NSEvent::IPtr) {
     let my_win = slf.get_inner();
     let key = Key::from_code(ev.key_code());
-    my_win
-        .state_man
-        .update(key, KeyState::Pressed, ev.timestamp());
+    let timestamp = my_win.time_converter.from_sys_to_instant(ev.timestamp());
+    my_win.gatherer.update(key, KeyState::Pressed, timestamp);
 }
 
 extern "C" fn key_up(mut slf: TypedObj<MyNSWindow>, _sel: Sel, ev: NSEvent::IPtr) {
     let my_win = slf.get_inner();
     let key = Key::from_code(ev.key_code());
-    my_win
-        .state_man
-        .update(key, KeyState::Released, ev.timestamp());
+    let timestamp = my_win.time_converter.from_sys_to_instant(ev.timestamp());
+    my_win.gatherer.update(key, KeyState::Released, timestamp);
 }
 
 extern "C" fn flags_changed(mut slf: TypedObj<MyNSWindow>, _sel: Sel, flags: NSEvent::IPtr) {
@@ -66,18 +66,21 @@ impl WinState {
 }
 
 #[derive(Debug)]
-struct MyNSWindow {
-    state_man: KeyStateManager,
+struct MyNSWindow<'l> {
+    gatherer: InputGatherer<'l>,
+    time_converter: TimeConverter,
 }
 
-impl MyNSWindow {
-    fn new() -> Self {
+impl<'l> MyNSWindow<'l> {
+    fn new(gatherer: InputGatherer<'l>) -> Self {
+        let time_converter = TimeConverter::new();
         Self {
-            state_man: KeyStateManager::new(),
+            gatherer,
+            time_converter,
         }
     }
 
-    fn init_as_subclass() -> TypedCls<MyNSWindow, NSWindow::IPtr> {
+    fn init_as_subclass() -> TypedCls<MyNSWindow<'l>, NSWindow::IPtr> {
         let cls = TypedCls::make_subclass(NSWindow::cls(), c"MyNSWindow").or_die("UNREACHABLE");
         NSResponder::override_accepts_first_responder_as_true(cls.cls());
         NSResponder::override_key_down(cls.cls(), key_down);
@@ -98,13 +101,14 @@ fn setup_main_menu(app: NSApplication::IPtr) {
     app.set_main_menu(Some(main_menu));
 }
 
-pub struct Window {
+pub struct Window<'l> {
     app: NSApplication::IPtr,
-    end: &'static AtomicBool,
+    win: NSWindow::IPtr,
+    _marker: PhantomData<&'l ()>,
 }
 
-impl Window {
-    pub fn init(end: &'static AtomicBool) -> Self {
+impl<'l> Window<'l> {
+    pub fn init(gatherer: InputGatherer, receiver: DrawReceiver) -> Self {
         let win_dele_cls = WinState::init_delegate_cls();
         let view_dele_cls = DrawState::init_delegate_cls();
         let my_win = MyNSWindow::init_as_subclass();
@@ -128,14 +132,14 @@ impl Window {
             | NSWindowStyleMask::RESIZABLE;
         let title = NSString::IPtr::new(c"bang!");
 
-        let win = my_win.alloc_upcasted(MyNSWindow::new());
+        let win = my_win.alloc_upcasted(MyNSWindow::new(gatherer));
         let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
 
         let device = MTLDevice::PPtr::get_default();
 
         let alloc = MTKView::alloc();
         let view = MTKView::IPtr::init(alloc, rect, device);
-        let dele = DrawState::new(device, view.color_pixel_fmt());
+        let dele = DrawState::new(device, view.color_pixel_fmt(), receiver);
         view.set_preferred_fps(120);
         view.set_delegate(view_dele_cls.alloc_init_upcasted(dele));
         win.set_delegate(win_dele_cls.alloc_init_upcasted(WinState { win }));
@@ -146,11 +150,20 @@ impl Window {
         win.center();
         win.set_content_min_size(size);
         win.set_content_aspect_ratio(size);
-        Window { app, end }
+        Window {
+            app,
+            win,
+            _marker: PhantomData,
+        }
     }
 
     pub fn run(&self) {
         self.app.run();
-        self.end.store(true, Ordering::Release);
+        soft_quit();
+    }
+
+    pub fn soft_quit() {
+        let app = NSApplication::IPtr::shared();
+        app.stop(app.obj());
     }
 }

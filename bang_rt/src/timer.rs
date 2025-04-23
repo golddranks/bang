@@ -1,5 +1,4 @@
 use std::{
-    sync::atomic::{AtomicU64, Ordering},
     thread::sleep,
     time::{Duration, Instant},
 };
@@ -16,13 +15,7 @@ pub struct Timer {
     recent_timings: [Duration; 3],
 }
 
-static DEADLINE: AtomicU64 = AtomicU64::new(0);
-
 impl Timer {
-    pub fn deadline() -> NSTimeInterval {
-        NSTimeInterval::from_u64(DEADLINE.load(Ordering::Acquire))
-    }
-
     pub fn new(target_fps: u64) -> Self {
         let period = Duration::from_secs_f64(1.0 / target_fps as f64);
         let process_info = NSProcessInfo::IPtr::process_info();
@@ -60,15 +53,8 @@ impl Timer {
         }
     }
 
-    fn set_deadline(&self) {
-        let since_start = self.next - self.start_instant;
-        let next_sys = self.start_sys + since_start.as_secs_f64();
-        DEADLINE.store(next_sys.to_u64(), Ordering::Release);
-    }
-
-    pub fn wait_until_next(&mut self) {
+    pub fn wait_until_next(&mut self) -> Instant {
         self.next += self.period;
-        self.set_deadline();
         let instant_before_sleep = Instant::now();
         let time_left = self.next - instant_before_sleep;
         if time_left >= self.margin {
@@ -83,5 +69,26 @@ impl Timer {
             sleep(snooze);
             now = Instant::now();
         }
+        self.next
+    }
+}
+
+#[derive(Debug)]
+pub struct TimeConverter {
+    start_instant: Instant,
+    start_sys: NSTimeInterval,
+}
+
+impl TimeConverter {
+    pub fn new() -> Self {
+        let process_info = NSProcessInfo::IPtr::process_info();
+        Self {
+            start_instant: Instant::now(),
+            start_sys: process_info.system_uptime(),
+        }
+    }
+
+    pub fn from_sys_to_instant(&self, sys_time: NSTimeInterval) -> Instant {
+        self.start_instant + Duration::from_secs_f64((sys_time - self.start_sys).to_secs())
     }
 }

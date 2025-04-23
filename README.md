@@ -1,23 +1,34 @@
 # TODO
 
+## Currently working on
+
+- Draw sender/receiver
+- Make allocator work with sender/receiver
+
+## Short term
+
 - Drawing sprites
   - Sending draw commands to the draw thread
   - Implementing actual quad drawing
 - Memory allocation
   - Frame allocator
-  - Heap allocator
+  - Long-term allocator
 - Hot reloading
   - File watching
   - Function pointer swap
 - Entity ID system
   - Make work with hot reloading
-- Audio fundamentals
-- Fixed point math
 - Better input handling
-- WebAssembly & WebGPU
 
+## Long term
+
+- Fixed point math
+- WebAssembly & WebGPU
+- Audio fundamentals
+- Vulkan, WinAPI, Wayland
 
 # Wants for Rust
+
 - Stable ABI
   - At least stable slice FFI.
     - Guarantee slice representation: https://github.com/rust-lang/rfcs/pull/3775
@@ -32,3 +43,5 @@
   - Lack of niceties for some common but complicated language syntax (will get better with some more sophisticated fragment specifiers)
   - Some language features could be improved to be more useful with macros (associated statics, re-opening mod blocks)
   - No suffix macros
+- Unsafe lifetime binders
+  - https://hackmd.io/@compiler-errors/HkXwoBPaR

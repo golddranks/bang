@@ -3,7 +3,10 @@ use std::{
     ptr::NonNull,
 };
 
-use bang_core::{ffi::FrameLogicExternFn, frame_logic_sym_name};
+use bang_core::{
+    alloc::Alloc, draw::DrawFrame, ffi::FrameLogicExternFn, frame_logic_sym_name, game::GameState,
+    input::InputState,
+};
 
 use crate::error::OrDie;
 
@@ -23,4 +26,24 @@ pub fn get_frame_logic(libname: &str) -> FrameLogicExternFn {
         panic!("Failed to find symbol: {:?}", sym_name);
     };
     unsafe { std::mem::transmute::<NonNull<c_void>, FrameLogicExternFn>(frame_logic_ptr) }
+}
+
+trait FrameLogic<'f> {
+    fn call(
+        self,
+        alloc: &mut Alloc<'f>,
+        input: &InputState,
+        game_state: &mut GameState,
+    ) -> DrawFrame<'f>;
+}
+
+impl<'f> FrameLogic<'f> for FrameLogicExternFn<'f> {
+    fn call(
+        self,
+        alloc: &mut Alloc<'f>,
+        input: &InputState,
+        game_state: &mut GameState,
+    ) -> DrawFrame<'f> {
+        self(alloc, input, game_state)
+    }
 }

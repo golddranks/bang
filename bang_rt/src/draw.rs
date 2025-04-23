@@ -1,4 +1,10 @@
-use std::ffi::CString;
+use std::{
+    ffi::CString,
+    ptr::null_mut,
+    sync::atomic::{AtomicPtr, Ordering},
+};
+
+use bang_core::draw::DrawFrame;
 
 use crate::{
     error::OrDie,
@@ -13,7 +19,61 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct DrawState {
+pub struct SharedDrawState<'l> {
+    frame_a: AtomicPtr<DrawFrame<'l>>,
+    frame_b: AtomicPtr<DrawFrame<'l>>,
+    current: AtomicPtr<AtomicPtr<DrawFrame<'l>>>,
+}
+
+impl<'l> SharedDrawState<'l> {
+    pub fn new() -> Self {
+        Self {
+            frame_a: AtomicPtr::new(std::ptr::null_mut()),
+            frame_b: AtomicPtr::new(std::ptr::null_mut()),
+            current: AtomicPtr::new(null_mut()),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct DrawSender<'l> {
+    shared: &'l SharedDrawState<'l>,
+}
+
+#[derive(Debug)]
+pub struct DrawReceiver<'l> {
+    shared: &'l SharedDrawState<'l>,
+}
+
+pub fn new_draw_pair<'l>(
+    shared: &'l mut SharedDrawState<'l>,
+) -> (DrawSender<'l>, DrawReceiver<'l>) {
+    let shared = &*shared;
+    let sender = DrawSender { shared };
+    let receiver = DrawReceiver { shared };
+    (sender, receiver)
+}
+
+impl<'l> DrawSender<'l> {
+    pub fn send(&self, frame: DrawFrame<'l>) {
+        let current = self.shared.current.load(Ordering::Relaxed);
+        let next = if current == &raw mut self.shared.frame_a {
+            &raw mut self.shared.frame_b
+        } else {
+            &raw mut self.shared.frame_a
+        };
+        self.shared.current.store(next, Ordering::Relaxed);
+        unsafe {
+            (*next).as_mut() = frame;
+        }
+    }
+}
+
+impl<'l> DrawReceiver<'l> {}
+
+#[derive(Debug)]
+pub struct DrawState<'l> {
+    receiver: DrawReceiver<'l>, // TODO: actually receive things to draw
     cmd_queue: MTLCommandQueue::PPtr,
     vtex_buf: MTLBuffer::PPtr,
     rend_pl_state: MTLRenderPipelineState::PPtr,
@@ -57,14 +117,18 @@ extern "C" fn size_change(
     eprintln!("size change called?! {:?}", size);
 }
 
-impl DrawState {
-    pub fn init_delegate_cls() -> TypedCls<DrawState, MTKViewDelegate::PPtr> {
+impl<'l> DrawState<'l> {
+    pub fn init_delegate_cls() -> TypedCls<DrawState<'l>, MTKViewDelegate::PPtr> {
         let cls = TypedCls::make_class(c"MTKViewDelegateWithDrawState").or_die("UNREACHABLE");
         MTKViewDelegate::PPtr::implement(&cls, draw, size_change);
         cls
     }
 
-    pub fn new(device: MTLDevice::PPtr, pixel_fmt: MTLPixelFormat) -> Self {
+    pub fn new(
+        device: MTLDevice::PPtr,
+        pixel_fmt: MTLPixelFormat,
+        receiver: DrawReceiver<'l>,
+    ) -> Self {
         let cmd_queue = device
             .new_cmd_queue()
             .or_die("new_cmd_queue: Failed to create command queue");
@@ -111,6 +175,7 @@ impl DrawState {
             .or_die("new_rend_pl_state: Failed to create render pipeline state");
 
         Self {
+            receiver,
             cmd_queue,
             vtex_buf,
             rend_pl_state,

@@ -3,7 +3,7 @@ use std::{
     error::Error,
     ffi::CStr,
     fmt::{Debug, Display},
-    ops::Add,
+    ops::{Add, Sub},
 };
 
 use crate::objc::crimes::objc_prop_sel_init;
@@ -372,13 +372,17 @@ impl Add<f64> for NSTimeInterval {
     }
 }
 
-impl NSTimeInterval {
-    pub fn to_u64(self) -> u64 {
-        u64::from_ne_bytes(self.0.to_ne_bytes())
-    }
+impl Sub for NSTimeInterval {
+    type Output = Self;
 
-    pub fn from_u64(value: u64) -> Self {
-        Self(f64::from_ne_bytes(value.to_ne_bytes()))
+    fn sub(self, other: Self) -> Self {
+        Self(self.0 - other.0)
+    }
+}
+
+impl NSTimeInterval {
+    pub fn to_secs(self) -> f64 {
+        self.0
     }
 }
 
