@@ -2,11 +2,8 @@
 
 ## Currently working on
 
-- Figure out single object allocation strategy
-- Make draw sender/receiver work (with boxing, allocation etc.)
-- Make allocator work with sender/receiver (with frame-lifetime allocs)
-
-- Actually draw according to the sent data
+- Validating the threading systems with Miri
+- Actually draw with dummy texture according to the sent data
 
 ## Short term
 
@@ -15,19 +12,23 @@
   - Implementing actual quad drawing
 - Memory allocation
   - Frame allocator
-  - Long-term allocator
+  - Long-term allocator, with IDs
 - Hot reloading
   - File watching
   - Function pointer swap
 - Entity ID system
   - Make work with hot reloading
 - Better input handling
+- Fixed point math basics
 
 ## Long term
 
-- Fixed point math
+- Fixed point math advanced
 - WebAssembly & WebGPU
 - Audio fundamentals
+
+## Very long term
+
 - Vulkan, WinAPI, Wayland
 
 # Wants for Rust

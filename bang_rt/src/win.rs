@@ -35,14 +35,14 @@ extern "C" fn win_did_resize(mut slf: TypedObj<WinState>, _sel: Sel, _notify: OP
 extern "C" fn key_down(mut slf: TypedObj<MyNSWindow>, _sel: Sel, ev: NSEvent::IPtr) {
     let my_win = slf.get_inner();
     let key = Key::from_code(ev.key_code());
-    let timestamp = my_win.time_converter.from_sys_to_instant(ev.timestamp());
+    let timestamp = my_win.time_converter.sys_to_instant(ev.timestamp());
     my_win.gatherer.update(key, KeyState::Pressed, timestamp);
 }
 
 extern "C" fn key_up(mut slf: TypedObj<MyNSWindow>, _sel: Sel, ev: NSEvent::IPtr) {
     let my_win = slf.get_inner();
     let key = Key::from_code(ev.key_code());
-    let timestamp = my_win.time_converter.from_sys_to_instant(ev.timestamp());
+    let timestamp = my_win.time_converter.sys_to_instant(ev.timestamp());
     my_win.gatherer.update(key, KeyState::Released, timestamp);
 }
 
@@ -108,7 +108,7 @@ pub struct Window<'l> {
 }
 
 impl<'l> Window<'l> {
-    pub fn init(gatherer: InputGatherer, receiver: DrawReceiver) -> Self {
+    pub fn init(input_gatherer: InputGatherer, draw_receiver: DrawReceiver) -> Self {
         let win_dele_cls = WinState::init_delegate_cls();
         let view_dele_cls = DrawState::init_delegate_cls();
         let my_win = MyNSWindow::init_as_subclass();
@@ -132,14 +132,14 @@ impl<'l> Window<'l> {
             | NSWindowStyleMask::RESIZABLE;
         let title = NSString::IPtr::new(c"bang!");
 
-        let win = my_win.alloc_upcasted(MyNSWindow::new(gatherer));
+        let win = my_win.alloc_upcasted(MyNSWindow::new(input_gatherer));
         let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
 
         let device = MTLDevice::PPtr::get_default();
 
         let alloc = MTKView::alloc();
         let view = MTKView::IPtr::init(alloc, rect, device);
-        let dele = DrawState::new(device, view.color_pixel_fmt(), receiver);
+        let dele = DrawState::new(device, view.color_pixel_fmt(), draw_receiver);
         view.set_preferred_fps(120);
         view.set_delegate(view_dele_cls.alloc_init_upcasted(dele));
         win.set_delegate(win_dele_cls.alloc_init_upcasted(WinState { win }));

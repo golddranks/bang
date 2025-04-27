@@ -48,7 +48,7 @@ impl<'f> FrameLogic<'f> for FrameLogicExternFn<'f> {
     }
 }
 
-struct InlinedFrameLogic<F> {
+pub struct InlinedFrameLogic<F> {
     f: F,
 }
 
@@ -58,8 +58,7 @@ pub fn as_frame_logic<F>(f: F) -> InlinedFrameLogic<F> {
 
 impl<'f, F> FrameLogic<'f> for InlinedFrameLogic<F>
 where
-    F: Send,
-    F: Fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>,
+    F: Send + Fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>,
 {
     fn call(
         &self,

@@ -83,7 +83,7 @@ impl TimeConverter {
         }
     }
 
-    pub fn from_sys_to_instant(&self, sys_time: NSTimeInterval) -> Instant {
+    pub fn sys_to_instant(&self, sys_time: NSTimeInterval) -> Instant {
         self.start_instant + Duration::from_secs_f64((sys_time - self.start_sys).to_secs())
     }
 }

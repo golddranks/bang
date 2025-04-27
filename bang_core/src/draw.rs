@@ -23,27 +23,35 @@ pub enum Cmd<'f> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct DrawFrame<'f> {
+    alloc_seq: usize,
     cmds: &'f [Cmd<'f>],
 }
 
+pub static DRAW_FRAME_DUMMY: DrawFrame = DrawFrame {
+    alloc_seq: 0,
+    cmds: &[],
+};
+
 impl<'f> DrawFrame<'f> {
-    pub fn dummy() -> Self {
-        Self { cmds: &[] }
+    pub fn alloc_seq(&self) -> usize {
+        self.alloc_seq
     }
 
     pub fn debug_dummies(alloc: &mut Alloc<'f>, dummies: &[(f32, f32)]) -> Self {
         let mut pos_vec = alloc.frame_vec();
         for &(x, y) in dummies {
-            pos_vec.as_vec().push(ScreenPos { x, y });
+            pos_vec.push(ScreenPos { x, y });
         }
         let pos = pos_vec.into_slice();
         let mut cmd_vec = alloc.frame_vec();
-        cmd_vec.as_vec().push(Cmd::DrawSQuads {
+        cmd_vec.push(Cmd::DrawSQuads {
             texture: TextureID(0),
             pos,
         });
+        let cmds = cmd_vec.into_slice();
         DrawFrame {
-            cmds: cmd_vec.into_slice(),
+            alloc_seq: alloc.get_alloc_seq(),
+            cmds,
         }
     }
 }

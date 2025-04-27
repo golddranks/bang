@@ -1,14 +1,14 @@
 use std::{
     ffi::CString,
-    mem::transmute,
     ops::Not,
     ptr::null_mut,
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-use bang_core::draw::DrawFrame;
+use bang_core::draw::{DRAW_FRAME_DUMMY, DrawFrame};
 
 use crate::{
+    alloc::AllocRetirer,
     error::OrDie,
     objc::{
         NSString, Sel, TypedCls, TypedObj,
@@ -41,46 +41,46 @@ pub struct DrawSender<'l> {
 #[derive(Debug)]
 pub struct DrawReceiver<'l> {
     shared: &'l SharedDrawState<'l>,
-    fresh: DrawFrame<'l>,
-    tired: Box<DrawFrame<'l>>,
+    retirer: AllocRetirer<'l>,
+    fresh: &'l DrawFrame<'l>,
 }
 
 pub fn new_draw_pair<'l>(
     shared: &'l mut SharedDrawState<'l>,
+    retirer: AllocRetirer<'l>,
 ) -> (DrawSender<'l>, DrawReceiver<'l>) {
     let shared = &*shared;
     let sender = DrawSender { shared };
     let receiver = DrawReceiver {
         shared,
-        fresh: DrawFrame::dummy(),
-        tired: Box::new(DrawFrame::dummy()),
+        retirer,
+        fresh: &DRAW_FRAME_DUMMY,
     };
     (sender, receiver)
 }
 
 impl<'l> DrawSender<'l> {
-    pub fn send<'f>(&mut self, frame: &'f DrawFrame<'f>) {
-        let perennial_frame = unsafe { transmute::<&'f DrawFrame<'f>, &'l DrawFrame<'l>>(frame) }; // TODO: explain why this crime is OK
-        self.shared.fresh.swap(
-            &raw const *perennial_frame as *mut DrawFrame<'l>,
-            Ordering::Release,
-        );
+    pub fn send<'f>(&mut self, frame: &'f mut DrawFrame<'f>) {
+        let perennial_frame = &raw mut *frame as *mut DrawFrame<'l>;
+        self.shared.fresh.swap(perennial_frame, Ordering::Release);
     }
 }
 
 impl<'l> DrawReceiver<'l> {
-    fn get_fresh<'f>(&mut self) -> DrawFrame<'f> {
+    fn get_fresh<'s>(&'s mut self) -> &'s DrawFrame<'s> {
         let freshest = self.shared.fresh.swap(null_mut(), Ordering::Acquire);
         if freshest.is_null().not() {
-            self.fresh = *freshest;
+            let retired_seq = self.fresh.alloc_seq();
+            self.fresh = unsafe { &mut *freshest };
+            self.retirer.retire(retired_seq);
         }
-        todo!()
+        self.fresh
     }
 }
 
 #[derive(Debug)]
 pub struct DrawState<'l> {
-    receiver: DrawReceiver<'l>, // TODO: actually receive things to draw
+    draw_receiver: DrawReceiver<'l>,
     cmd_queue: MTLCommandQueue::PPtr,
     vtex_buf: MTLBuffer::PPtr,
     rend_pl_state: MTLRenderPipelineState::PPtr,
@@ -89,7 +89,8 @@ pub struct DrawState<'l> {
 
 extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr) {
     let state = dele.get_inner();
-    let frame = state.receiver.get_fresh();
+    let frame = state.draw_receiver.get_fresh();
+    dbg!(frame);
 
     let phase = state.frame % 100;
     let color_phase = 0.01 * phase as f64;
@@ -135,7 +136,7 @@ impl<'l> DrawState<'l> {
     pub fn new(
         device: MTLDevice::PPtr,
         pixel_fmt: MTLPixelFormat,
-        receiver: DrawReceiver<'l>,
+        draw_receiver: DrawReceiver<'l>,
     ) -> Self {
         let cmd_queue = device
             .new_cmd_queue()
@@ -183,7 +184,7 @@ impl<'l> DrawState<'l> {
             .or_die("new_rend_pl_state: Failed to create render pipeline state");
 
         Self {
-            receiver,
+            draw_receiver,
             cmd_queue,
             vtex_buf,
             rend_pl_state,

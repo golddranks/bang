@@ -57,7 +57,7 @@ impl<'l> InputGatherer<'l> {
 }
 
 impl<'l> InputConsumer<'l> {
-    pub fn consume_gathered(&mut self, next_deadline: Instant) -> &InputState {
+    pub fn get_gathered(&mut self, next_deadline: Instant) -> &InputState {
         {
             let (gathered, deadline) = &mut **self.shared.gather.lock().expect("UNREACHABLE");
             *self.consuming = gathered.clone();
