@@ -7,10 +7,35 @@ name = "bang_core"
 version = "0.1.0"
 
 [[package]]
-name = "bang_rt"
+name = "bang_rt_common"
 version = "0.1.0"
 dependencies = [
  "bang_core",
+]
+
+[[package]]
+name = "bang_rt_macos"
+version = "0.1.0"
+dependencies = [
+ "bang_core",
+ "bang_rt_common",
+]
+
+[[package]]
+name = "bang_rt_tui"
+version = "0.1.0"
+dependencies = [
+ "bang_core",
+ "bang_rt_common",
+]
+
+[[package]]
+name = "demo_dist"
+version = "0.1.0"
+dependencies = [
+ "bang_rt_common",
+ "bang_rt_macos",
+ "demo_impl",
 ]
 
 [[package]]
@@ -18,12 +43,4 @@ name = "demo_impl"
 version = "0.1.0"
 dependencies = [
  "bang_core",
-]
-
-[[package]]
-name = "demo_runner"
-version = "0.1.0"
-dependencies = [
- "bang_rt",
- "demo_impl",
 ]

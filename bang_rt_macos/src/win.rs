@@ -1,9 +1,10 @@
 use std::marker::PhantomData;
 
+use bang_core::input::{Key, KeyState};
+use bang_rt_common::{draw::DrawReceiver, error::OrDie, input::InputGatherer, soft_quit};
+
 use crate::{
-    draw::{DrawReceiver, DrawState},
-    error::OrDie,
-    input::{InputGatherer, Key, KeyState},
+    draw::DrawState,
     objc::{
         NSString, OPtr, Sel, TypedCls, TypedObj, TypedPtr,
         wrappers::{
@@ -12,7 +13,6 @@ use crate::{
             NSResponder, NSWindow, NSWindowDelegate, NSWindowStyleMask, sel,
         },
     },
-    soft_quit,
     timer::TimeConverter,
 };
 

@@ -1,3 +1,10 @@
 [workspace]
 resolver = "3"
-members = ["bang_rt", "bang_core", "demo_impl", "demo_runner"]
+members = [
+    "bang_rt_macos",
+    "bang_rt_tui",
+    "bang_rt_common",
+    "bang_core",
+    "demo_impl",
+    "demo_dist",
+]

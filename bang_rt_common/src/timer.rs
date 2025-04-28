@@ -3,8 +3,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::objc::wrappers::{NSProcessInfo, NSTimeInterval};
-
 pub struct Timer {
     period: Duration,
     margin: Duration,
@@ -49,7 +47,6 @@ impl Timer {
     }
 
     pub fn wait_until_next(&mut self) -> Instant {
-        self.next += self.period;
         let instant_before_sleep = Instant::now();
         let time_left = self.next - instant_before_sleep;
         if time_left >= self.margin {
@@ -64,26 +61,7 @@ impl Timer {
             sleep(snooze);
             now = Instant::now();
         }
+        self.next += self.period;
         self.next
-    }
-}
-
-#[derive(Debug)]
-pub struct TimeConverter {
-    start_instant: Instant,
-    start_sys: NSTimeInterval,
-}
-
-impl TimeConverter {
-    pub fn new() -> Self {
-        let process_info = NSProcessInfo::IPtr::process_info();
-        Self {
-            start_instant: Instant::now(),
-            start_sys: process_info.system_uptime(),
-        }
-    }
-
-    pub fn sys_to_instant(&self, sys_time: NSTimeInterval) -> Instant {
-        self.start_instant + Duration::from_secs_f64((sys_time - self.start_sys).to_secs())
     }
 }

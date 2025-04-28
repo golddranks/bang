@@ -4,21 +4,32 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use bang_core::alloc::Alloc;
-
 #[derive(Debug)]
 #[repr(C)]
 pub struct SharedAllocState {
     retired_seq: AtomicUsize,
 }
 
-impl SharedAllocState {
-    pub fn new() -> Self {
+impl Default for SharedAllocState {
+    fn default() -> Self {
         Self {
             retired_seq: AtomicUsize::new(0),
         }
     }
 }
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct AllocRetirer<'l> {
+    shared: &'l SharedAllocState,
+}
+
+impl<'l> AllocRetirer<'l> {
+    pub fn retire(&self, seq: usize) {
+        self.shared.retired_seq.fetch_max(seq, Ordering::Release);
+    }
+}
+use bang_core::alloc::Alloc;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -56,24 +67,11 @@ impl<'l> AllocManager<'l> {
 
     pub fn get_frame_alloc<'f, 's>(&'s mut self) -> &'s mut Alloc<'f> {
         self.process_retired();
-        let mut alloc = self.free_pool.pop().unwrap_or_else(Alloc::new);
+        let mut alloc = self.free_pool.pop().unwrap_or_default();
         self.alloc_seq += 1;
         alloc.reset(self.alloc_seq);
         self.in_use.push_back(alloc);
         let alloc_mut = self.in_use.back_mut().expect("UNREACHABLE");
-        let alloc = unsafe { transmute::<&mut Alloc<'static>, &mut Alloc<'f>>(alloc_mut) };
-        alloc
-    }
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct AllocRetirer<'l> {
-    shared: &'l SharedAllocState,
-}
-
-impl<'l> AllocRetirer<'l> {
-    pub fn retire(&self, seq: usize) {
-        self.shared.retired_seq.fetch_max(seq, Ordering::Release);
+        unsafe { transmute::<&mut Alloc<'static>, &mut Alloc<'f>>(alloc_mut) }
     }
 }

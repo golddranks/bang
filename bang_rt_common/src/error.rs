@@ -26,7 +26,7 @@ impl Error for FalseError {}
 
 fn die(err: impl Error, msg: &str) -> ! {
     soft_quit();
-    panic!("{}: {}", msg, err);
+    panic!("{msg}: {err}");
 }
 
 pub trait OrDie<T> {

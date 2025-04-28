@@ -1,4 +1,5 @@
-use bang_rt::start_runtime_with_dynamic;
+use bang_rt_common::start_rt_dynamic;
+use bang_rt_tui::TuiRT;
 
 fn main() {
     let mut args = std::env::args();
@@ -6,6 +7,7 @@ fn main() {
         eprintln!("Usage: runner <libname>");
         std::process::exit(1);
     };
-    eprintln!("Running {libname} dynamically");
-    start_runtime_with_dynamic(&libname);
+    eprintln!("Running {libname} dynamically in TUI mode");
+
+    start_rt_dynamic::<TuiRT>(&libname);
 }

@@ -1,11 +1,12 @@
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(u8)]
 pub enum KeyState {
-    Pressed,
-    Down,
-    Released,
     #[default]
     Up,
+    Down,
+    Pressed,
+    Released,
+    Tap,
 }
 
 impl KeyState {
@@ -15,15 +16,16 @@ impl KeyState {
             KeyState::Down => *self = KeyState::Down,
             KeyState::Released => *self = KeyState::Up,
             KeyState::Up => *self = KeyState::Up,
+            KeyState::Tap => *self = KeyState::Up,
         }
     }
 
     pub fn down(&self) -> bool {
-        matches!(self, KeyState::Down | KeyState::Pressed)
+        matches!(self, KeyState::Down | KeyState::Pressed | KeyState::Tap)
     }
 
     pub fn up(&self) -> bool {
-        matches!(self, KeyState::Up | KeyState::Released)
+        matches!(self, KeyState::Up | KeyState::Released | KeyState::Tap)
     }
 }
 
@@ -83,6 +85,17 @@ impl Key {
     pub fn from_code(code: u16) -> Self {
         match code {
             49 => Key::Space,
+            126 => Key::Up,
+            125 => Key::Down,
+            123 => Key::Left,
+            124 => Key::Right,
+            _ => Key::Other,
+        }
+    }
+
+    pub fn from_ascii(ascii: u8) -> Self {
+        match ascii {
+            b' ' => Key::Space,
             126 => Key::Up,
             125 => Key::Down,
             123 => Key::Left,

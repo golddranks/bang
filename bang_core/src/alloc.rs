@@ -15,13 +15,13 @@ impl<'s, 'f, T> Deref for FrameVec<'s, 'f, T> {
     type Target = Vec<T>;
 
     fn deref(&self) -> &Self::Target {
-        &self.vec
+        self.vec
     }
 }
 
 impl<'s, 'f, T> DerefMut for FrameVec<'s, 'f, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.vec
+        self.vec
     }
 }
 
@@ -186,7 +186,13 @@ impl<'f> Alloc<'f> {
         }
     }
 
-    pub fn new() -> Self {
+    pub fn get_alloc_seq(&self) -> usize {
+        self.alloc_seq
+    }
+}
+
+impl Default for Alloc<'static> {
+    fn default() -> Self {
         eprintln!("NEW ALLOC!");
         Alloc {
             alloc_seq: 1,
@@ -202,10 +208,6 @@ impl<'f> Alloc<'f> {
             singles2: Singles::new(),
             singles1: Singles::new(),
         }
-    }
-
-    pub fn get_alloc_seq(&self) -> usize {
-        self.alloc_seq
     }
 }
 
@@ -241,7 +243,7 @@ mod tests {
             }
             assert_eq!(vec.into_slice(), result.collect::<Vec<_>>().as_slice());
         }
-        let mut alloc = Alloc::new();
+        let mut alloc = Alloc::default();
 
         let vec: FrameVec<u8> = alloc.frame_vec();
         helper(vec, 0..20);
@@ -293,7 +295,7 @@ mod tests {
     }
     #[test]
     fn test_frame_val() {
-        let mut alloc = Alloc::new();
+        let mut alloc = Alloc::default();
 
         for i in 0..20_u8 {
             assert_eq!(*alloc.frame_val(i), i);

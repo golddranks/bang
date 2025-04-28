@@ -1,0 +1,9 @@
+[package]
+name = "demo_dist"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bang_rt_common = { path = "../bang_rt_common" }
+bang_rt_macos = { path = "../bang_rt_macos" }
+demo_impl = { path = "../demo_impl" }

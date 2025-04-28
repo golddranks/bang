@@ -1,82 +1,15 @@
-use std::{
-    ffi::CString,
-    ops::Not,
-    ptr::null_mut,
-    sync::atomic::{AtomicPtr, Ordering},
-};
+use std::ffi::CString;
 
-use bang_core::draw::{DRAW_FRAME_DUMMY, DrawFrame};
+use bang_rt_common::{draw::DrawReceiver, error::OrDie};
 
-use crate::{
-    alloc::AllocRetirer,
-    error::OrDie,
-    objc::{
-        NSString, Sel, TypedCls, TypedObj,
-        wrappers::{
-            CGSize, MTKView, MTKViewDelegate, MTLBuffer, MTLClearColor, MTLCommandQueue,
-            MTLCompileOptions, MTLDevice, MTLPixelFormat, MTLPrimitiveType,
-            MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, NSUrl,
-        },
+use crate::objc::{
+    NSString, Sel, TypedCls, TypedObj,
+    wrappers::{
+        CGSize, MTKView, MTKViewDelegate, MTLBuffer, MTLClearColor, MTLCommandQueue,
+        MTLCompileOptions, MTLDevice, MTLPixelFormat, MTLPrimitiveType,
+        MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, NSUrl,
     },
 };
-
-#[derive(Debug)]
-pub struct SharedDrawState<'l> {
-    fresh: AtomicPtr<DrawFrame<'l>>,
-}
-
-impl<'l> SharedDrawState<'l> {
-    pub fn new() -> Self {
-        Self {
-            fresh: AtomicPtr::new(null_mut()),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct DrawSender<'l> {
-    shared: &'l SharedDrawState<'l>,
-}
-
-#[derive(Debug)]
-pub struct DrawReceiver<'l> {
-    shared: &'l SharedDrawState<'l>,
-    retirer: AllocRetirer<'l>,
-    fresh: &'l DrawFrame<'l>,
-}
-
-pub fn new_draw_pair<'l>(
-    shared: &'l mut SharedDrawState<'l>,
-    retirer: AllocRetirer<'l>,
-) -> (DrawSender<'l>, DrawReceiver<'l>) {
-    let shared = &*shared;
-    let sender = DrawSender { shared };
-    let receiver = DrawReceiver {
-        shared,
-        retirer,
-        fresh: &DRAW_FRAME_DUMMY,
-    };
-    (sender, receiver)
-}
-
-impl<'l> DrawSender<'l> {
-    pub fn send<'f>(&mut self, frame: &'f mut DrawFrame<'f>) {
-        let perennial_frame = &raw mut *frame as *mut DrawFrame<'l>;
-        self.shared.fresh.swap(perennial_frame, Ordering::Release);
-    }
-}
-
-impl<'l> DrawReceiver<'l> {
-    fn get_fresh<'s>(&'s mut self) -> &'s DrawFrame<'s> {
-        let freshest = self.shared.fresh.swap(null_mut(), Ordering::Acquire);
-        if freshest.is_null().not() {
-            let retired_seq = self.fresh.alloc_seq();
-            self.fresh = unsafe { &mut *freshest };
-            self.retirer.retire(retired_seq);
-        }
-        self.fresh
-    }
-}
 
 #[derive(Debug)]
 pub struct DrawState<'l> {
@@ -90,7 +23,6 @@ pub struct DrawState<'l> {
 extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr) {
     let state = dele.get_inner();
     let frame = state.draw_receiver.get_fresh();
-    dbg!(frame);
 
     let phase = state.frame % 100;
     let color_phase = 0.01 * phase as f64;
@@ -123,7 +55,7 @@ extern "C" fn size_change(
     _view: MTKView::IPtr,
     size: CGSize,
 ) {
-    eprintln!("size change called?! {:?}", size);
+    eprintln!("size change called?! {size:?}");
 }
 
 impl<'l> DrawState<'l> {

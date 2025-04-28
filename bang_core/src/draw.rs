@@ -3,8 +3,8 @@ use crate::alloc::Alloc;
 #[derive(Debug)]
 #[repr(C)]
 pub struct ScreenPos {
-    x: f32,
-    y: f32,
+    pub x: f32,
+    pub y: f32,
 }
 
 #[derive(Debug)]
@@ -23,8 +23,8 @@ pub enum Cmd<'f> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct DrawFrame<'f> {
-    alloc_seq: usize,
-    cmds: &'f [Cmd<'f>],
+    pub alloc_seq: usize,
+    pub cmds: &'f [Cmd<'f>],
 }
 
 pub static DRAW_FRAME_DUMMY: DrawFrame = DrawFrame {
