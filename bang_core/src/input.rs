@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum KeyState {
     #[default]
@@ -59,13 +59,18 @@ impl InputState {
     }
 
     pub fn update(&mut self, key: Key, state: KeyState) {
-        match key {
-            Key::Space => self.space = state,
-            Key::Up => self.up = state,
-            Key::Down => self.down = state,
-            Key::Left => self.left = state,
-            Key::Right => self.right = state,
-            Key::Other => {}
+        let old_state = match key {
+            Key::Space => &mut self.space,
+            Key::Up => &mut self.up,
+            Key::Down => &mut self.down,
+            Key::Left => &mut self.left,
+            Key::Right => &mut self.right,
+            Key::Other => return,
+        };
+        if *old_state == KeyState::Pressed && state == KeyState::Released {
+            *old_state = KeyState::Tap;
+        } else {
+            *old_state = state;
         }
     }
 }
