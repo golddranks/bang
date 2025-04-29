@@ -24,21 +24,23 @@ impl<'l> Default for SharedDrawState<'l> {
 #[derive(Debug)]
 pub struct DrawSender<'l> {
     shared: &'l SharedDrawState<'l>,
+    retirer: &'l AllocRetirer<'l>,
 }
 
 #[derive(Debug)]
 pub struct DrawReceiver<'l> {
     shared: &'l SharedDrawState<'l>,
-    retirer: AllocRetirer<'l>,
+    retirer: &'l AllocRetirer<'l>,
     fresh: &'l DrawFrame<'l>,
 }
 
 pub fn new_draw_pair<'l>(
     shared: &'l mut SharedDrawState<'l>,
-    retirer: AllocRetirer<'l>,
+    retirer: &'l mut AllocRetirer<'l>,
 ) -> (DrawSender<'l>, DrawReceiver<'l>) {
     let shared = &*shared;
-    let sender = DrawSender { shared };
+    let retirer = &*retirer;
+    let sender = DrawSender { shared, retirer };
     let receiver = DrawReceiver {
         shared,
         retirer,
@@ -50,8 +52,12 @@ pub fn new_draw_pair<'l>(
 impl<'l> DrawSender<'l> {
     pub fn send<'f>(&mut self, frame: &'f mut DrawFrame<'f>) {
         #[allow(clippy::unnecessary_cast)]
-        let perennial_frame = &raw mut *frame as *mut DrawFrame<'l>;
-        self.shared.fresh.swap(perennial_frame, Ordering::Release);
+        let frame = &raw mut *frame as *mut DrawFrame<'l>;
+        let missed_frame = self.shared.fresh.swap(frame, Ordering::Release);
+        if missed_frame.is_null().not() {
+            let missed_frame = unsafe { &*missed_frame };
+            self.retirer.retire_early(missed_frame.alloc_seq);
+        }
     }
 }
 
@@ -59,9 +65,9 @@ impl<'l> DrawReceiver<'l> {
     pub fn get_fresh<'s>(&'s mut self) -> &'s DrawFrame<'s> {
         let freshest = self.shared.fresh.swap(null_mut(), Ordering::Acquire);
         if freshest.is_null().not() {
-            let retired_seq = self.fresh.alloc_seq();
+            let retired_seq = self.fresh.alloc_seq;
             self.fresh = unsafe { &mut *freshest };
-            self.retirer.retire(retired_seq);
+            self.retirer.retire_up_to(retired_seq);
         }
         self.fresh
     }

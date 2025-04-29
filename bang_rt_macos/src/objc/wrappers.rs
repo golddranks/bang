@@ -85,6 +85,7 @@ pub mod sel {
     objc_sel!(run);
     objc_sel!(stop_);
     objc_prop_sel!(mainMenu);
+    objc_prop_sel!(isRunning);
 
     // NSWindow
     objc_sel!(initWithContentRect_styleMask_backing_defer_);
@@ -213,6 +214,7 @@ pub fn init_objc() {
     sel::run.init();
     sel::stop_.init();
     objc_prop_sel_init!(mainMenu);
+    objc_prop_sel_init!(isRunning);
 
     // NSWindow
     sel::initWithContentRect_styleMask_backing_defer_.init();
@@ -348,6 +350,7 @@ impl NSApplication::IPtr {
     }
 
     objc_prop_impl!(mainMenu, Option<NSMenu::IPtr>, main_menu, set_main_menu);
+    objc_prop_impl!(isRunning, bool, running);
 }
 
 #[repr(i64)]

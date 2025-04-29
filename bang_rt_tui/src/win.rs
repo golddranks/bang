@@ -5,7 +5,7 @@ use std::{io, ops::Not, os::unix::io::AsRawFd};
 
 use bang_core::input::{Key, KeyState};
 use bang_rt_common::error::OrDie;
-use bang_rt_common::{draw::DrawReceiver, input::InputGatherer, should_end};
+use bang_rt_common::{draw::DrawReceiver, end::should_end, input::InputGatherer};
 
 use crate::draw::draw;
 

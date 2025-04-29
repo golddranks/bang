@@ -3,9 +3,9 @@ mod objc;
 mod timer;
 mod win;
 
-use bang_rt_common::Runtime;
-pub use win::Window;
+use bang_rt_common::{end::init_notify_end, runtime::Runtime};
 
+use win::Window;
 pub struct MacOSRT;
 
 impl Runtime for MacOSRT {
@@ -13,6 +13,7 @@ impl Runtime for MacOSRT {
 
     fn init_rt() {
         objc::init_objc();
+        init_notify_end(Window::notify_end);
     }
 
     fn init_win<'l>(

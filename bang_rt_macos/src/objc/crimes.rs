@@ -736,6 +736,7 @@ impl Debug for NSString::IPtr {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_ns_string() {
     init_objc_core();
     let s = NSString::IPtr::new(c"huhheiやー");

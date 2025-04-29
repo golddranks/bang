@@ -33,10 +33,6 @@ pub static DRAW_FRAME_DUMMY: DrawFrame = DrawFrame {
 };
 
 impl<'f> DrawFrame<'f> {
-    pub fn alloc_seq(&self) -> usize {
-        self.alloc_seq
-    }
-
     pub fn debug_dummies(alloc: &mut Alloc<'f>, dummies: &[(f32, f32)]) -> Self {
         let mut pos_vec = alloc.frame_vec();
         for &(x, y) in dummies {
@@ -50,7 +46,7 @@ impl<'f> DrawFrame<'f> {
         });
         let cmds = cmd_vec.into_slice();
         DrawFrame {
-            alloc_seq: alloc.get_alloc_seq(),
+            alloc_seq: alloc.alloc_seq,
             cmds,
         }
     }

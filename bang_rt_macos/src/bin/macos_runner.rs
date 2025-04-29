@@ -1,4 +1,4 @@
-use bang_rt_common::start_rt_dynamic;
+use bang_rt_common::runtime::start_dynamic;
 use bang_rt_macos::MacOSRT;
 
 fn main() {
@@ -9,5 +9,5 @@ fn main() {
     };
     eprintln!("Running {libname} dynamically on MacOS");
 
-    start_rt_dynamic::<MacOSRT>(&libname);
+    start_dynamic::<MacOSRT>(&libname);
 }

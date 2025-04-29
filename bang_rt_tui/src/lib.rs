@@ -1,8 +1,8 @@
 mod draw;
 mod win;
 
-use bang_rt_common::{Runtime, draw::DrawReceiver, input::InputGatherer};
-pub use win::Window;
+use bang_rt_common::{draw::DrawReceiver, input::InputGatherer, runtime::Runtime};
+use win::Window;
 
 pub struct TuiRT;
 

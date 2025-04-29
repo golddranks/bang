@@ -1,4 +1,4 @@
-use bang_rt_common::start_rt_dynamic;
+use bang_rt_common::runtime::start_dynamic;
 use bang_rt_tui::TuiRT;
 
 fn main() {
@@ -9,5 +9,5 @@ fn main() {
     };
     eprintln!("Running {libname} dynamically in TUI mode");
 
-    start_rt_dynamic::<TuiRT>(&libname);
+    start_dynamic::<TuiRT>(&libname);
 }

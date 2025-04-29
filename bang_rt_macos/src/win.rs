@@ -1,7 +1,12 @@
 use std::marker::PhantomData;
 
 use bang_core::input::{Key, KeyState};
-use bang_rt_common::{draw::DrawReceiver, error::OrDie, input::InputGatherer, soft_quit};
+use bang_rt_common::{
+    draw::DrawReceiver,
+    end::{should_end, soft_quit},
+    error::OrDie,
+    input::InputGatherer,
+};
 
 use crate::{
     draw::DrawState,
@@ -162,8 +167,12 @@ impl<'l> Window<'l> {
         soft_quit();
     }
 
-    pub fn soft_quit() {
-        let app = NSApplication::IPtr::shared();
-        app.stop(app.obj());
+    pub fn notify_end() {
+        if should_end() {
+            let app = NSApplication::IPtr::shared();
+            if app.running() {
+                app.stop(app.obj());
+            }
+        }
     }
 }

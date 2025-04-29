@@ -1,6 +1,6 @@
 use std::{error::Error, fmt::Display};
 
-use crate::soft_quit;
+use crate::end::soft_quit;
 
 #[derive(Debug, Clone, Copy)]
 struct NoneError;

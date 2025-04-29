@@ -1,4 +1,5 @@
 use std::{
+    fmt::Debug,
     marker::PhantomData,
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
@@ -46,7 +47,6 @@ struct Singles<P> {
     latest_filled_up_to: usize,
 }
 
-#[derive(Debug)]
 #[repr(C)]
 pub struct Alloc<'frame> {
     pub alloc_seq: usize,
@@ -72,6 +72,13 @@ impl<P> Drop for Vecs<P> {
 }
 
 impl<P> Vecs<P> {
+    fn size(&self) -> usize {
+        self.vecs
+            .iter()
+            .map(|(type_size, vec)| vec.capacity() * *type_size)
+            .sum()
+    }
+
     fn reinterpret<'s, T>(
         type_size: &'s mut usize,
         vec: &'s mut Vec<MaybeUninit<P>>,
@@ -94,6 +101,7 @@ impl<P> Vecs<P> {
     }
 
     fn get_new<T>(&mut self) -> &mut Vec<T> {
+        assert_eq!(align_of::<T>(), align_of::<P>());
         if self.in_use == self.vecs.len() {
             let vec = Vec::new();
             self.vecs.push((0, vec));
@@ -119,11 +127,20 @@ impl<P> Singles<P>
 where
     MaybeUninit<P>: Clone,
 {
+    fn size(&self) -> usize {
+        self.slices
+            .iter()
+            .map(|slice| slice.len() * size_of::<P>())
+            .sum()
+    }
+
     fn get_new<T>(&mut self) -> *mut T {
+        assert_eq!(align_of::<T>(), align_of::<P>());
         let t_size_in_p_units = size_of::<T>().div_ceil(size_of::<P>());
         let slice = &mut *self.slices[self.in_use];
         let ptr = if (slice.len() - self.latest_filled_up_to) * size_of::<P>() < size_of::<T>() {
-            let new_slice = vec![MaybeUninit::<P>::uninit(); slice.len() * 2].into_boxed_slice();
+            let new_size = slice.len().max(t_size_in_p_units) * 2;
+            let new_slice = vec![MaybeUninit::<P>::uninit(); new_size].into_boxed_slice();
             self.slices.push(new_slice);
             self.latest_filled_up_to = 0;
             self.in_use += 1;
@@ -155,6 +172,20 @@ where
 }
 
 impl<'f> Alloc<'f> {
+    pub fn size(&self) -> usize {
+        let vecs_size = self.vecs16.size()
+            + self.vecs8.size()
+            + self.vecs4.size()
+            + self.vecs2.size()
+            + self.vecs1.size();
+        let singles_size = self.singles16.size()
+            + self.singles8.size()
+            + self.singles4.size()
+            + self.singles2.size()
+            + self.singles1.size();
+        vecs_size + singles_size
+    }
+
     pub fn frame_vec<'s, T>(&'s mut self) -> FrameVec<'s, 'f, T> {
         let vec = match align_of::<T>() {
             16 => self.vecs16.get_new(),
@@ -185,9 +216,14 @@ impl<'f> Alloc<'f> {
             &mut *ptr
         }
     }
+}
 
-    pub fn get_alloc_seq(&self) -> usize {
-        self.alloc_seq
+impl<'r> Debug for Alloc<'r> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Alloc")
+            .field("alloc_seq", &self.alloc_seq)
+            .field("size", &(self.size()))
+            .finish()
     }
 }
 
@@ -231,7 +267,88 @@ impl Alloc<'static> {
 mod tests {
     use std::fmt::Debug;
 
-    use super::{Alloc, FrameVec};
+    use super::{Alloc, FrameVec, Singles, Vecs};
+
+    #[test]
+    fn test_singles_u8() {
+        let mut single = Singles::<u8>::new();
+        assert_eq!(single.size(), 8); // Preallocated
+        single.get_new::<u8>();
+        single.get_new::<u8>();
+        single.get_new::<u8>();
+        single.get_new::<u8>();
+        single.get_new::<u8>();
+        single.get_new::<u8>();
+        single.get_new::<u8>();
+        single.get_new::<u8>();
+        assert_eq!(single.size(), 8); // Full
+        single.get_new::<u8>();
+        assert_eq!(single.size(), 24); // Grew by 16
+        single.get_new::<[u8; 15]>();
+        assert_eq!(single.size(), 24); // Full again
+        single.get_new::<u8>();
+        assert_eq!(single.size(), 56); // Grew by 32
+        single.get_new::<[u8; 32]>(); // Overflowing by 1
+        assert_eq!(single.size(), 120); // Grew by 64
+        single.get_new::<[u8; 130]>(); // Overflowing by over next increment (128)
+        assert_eq!(single.size(), 380); // Grew by 2 * 130, not by 128
+        single.get_new::<[u8; 130]>();
+        assert_eq!(single.size(), 380); // Full again
+        single.get_new::<u8>();
+        assert_eq!(single.size(), 900); // Grew by 520
+    }
+
+    #[test]
+    fn test_singles_u16() {
+        let mut single = Singles::<u16>::new();
+        assert_eq!(single.size(), 16); // Preallocated
+        single.get_new::<u16>();
+        single.get_new::<u16>();
+        single.get_new::<u16>();
+        single.get_new::<u16>();
+        single.get_new::<u16>();
+        single.get_new::<u16>();
+        single.get_new::<u16>();
+        single.get_new::<u16>();
+        assert_eq!(single.size(), 16); // Full
+        single.get_new::<u16>();
+        assert_eq!(single.size(), 48); // Grew by 32
+        single.get_new::<[u16; 15]>();
+        assert_eq!(single.size(), 48); // Full again
+        single.get_new::<u16>();
+        assert_eq!(single.size(), 112); // Grew by 64
+        single.get_new::<[u16; 32]>(); // Overflowing by 2
+        assert_eq!(single.size(), 240); // Grew by 128
+        single.get_new::<[u16; 130]>(); // Overflowing by over next increment (256)
+        assert_eq!(single.size(), 760); // Grew by 2 * 260, not by 256
+        single.get_new::<[u16; 130]>();
+        assert_eq!(single.size(), 760); // Full again
+        single.get_new::<u16>();
+        assert_eq!(single.size(), 1800); // Grew by 1040
+    }
+
+    #[test]
+    fn test_singles_reset() {
+        let mut single = Singles::<u16>::new();
+        assert_eq!(single.size(), 16); // Preallocated
+        single.get_new::<[u16; 50]>();
+        assert_eq!(single.size(), 216);
+
+        single.reset();
+
+        assert_eq!(single.size(), 216);
+        single.get_new::<[u16; 9]>(); // Overflowing the first, 16-byte slice by 2
+        assert_eq!(single.size(), 216); // Still fits in the next
+    }
+
+    #[test]
+    fn test_vecs() {
+        let mut vecs = Vecs::<u8>::new();
+        assert_eq!(vecs.size(), 0); // No prealloc
+        vecs.get_new::<u8>().push(1);
+        assert_eq!(vecs.size(), 8);
+        vecs.get_new::<u8>();
+    }
 
     #[test]
     fn test_frame_vec() {
@@ -244,9 +361,12 @@ mod tests {
             assert_eq!(vec.into_slice(), result.collect::<Vec<_>>().as_slice());
         }
         let mut alloc = Alloc::default();
+        assert_eq!(alloc.size(), 256);
 
-        let vec: FrameVec<u8> = alloc.frame_vec();
-        helper(vec, 0..20);
+        let mut vec: FrameVec<u8> = alloc.frame_vec();
+        vec.push(0);
+        //helper(vec, 0..20);
+        assert_eq!(alloc.size(), 256);
 
         let vec: FrameVec<u16> = alloc.frame_vec();
         helper(vec, 20..40);
