@@ -1,6 +1,9 @@
 macos_runner: target/shaders.metallib target/debug/libdemo_impl.dylib
 	cargo run --bin macos_runner demo_impl
 
+tui_runner: target/shaders.metallib target/debug/libdemo_impl.dylib
+	cargo run --bin tui_runner demo_impl
+
 demo_dist: target/shaders.metallib target/debug/libdemo_impl.dylib
 	cargo run --bin demo_dist
 
@@ -11,7 +14,7 @@ target/shaders.metallib: bang_rt_macos/src/shaders.metal
 target/debug/libdemo_impl.dylib: demo_impl/src/*.rs
 	cargo build -p demo_impl
 
-tui_runner: target/shaders.metallib target/debug/libdemo_impl.dylib
-	cargo run --bin tui_runner demo_impl
+miri:
+	cargo miri test
 
-.PHONY: demo_dist
+.PHONY: demo_dist macos_runner tui_runner miri

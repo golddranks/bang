@@ -1,4 +1,5 @@
 use std::{
+    any::type_name,
     fmt::Debug,
     marker::PhantomData,
     mem::MaybeUninit,
@@ -7,6 +8,7 @@ use std::{
 };
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
 pub struct FrameVec<'slf, 'frame, T> {
     vec: &'slf mut Vec<T>,
     _frame_lifetime: PhantomData<&'frame ()>,
@@ -28,6 +30,11 @@ impl<'s, 'f, T> DerefMut for FrameVec<'s, 'f, T> {
 
 impl<'s, 'f, T> FrameVec<'s, 'f, T> {
     pub fn into_slice(self) -> &'f [T] {
+        // SAFETY: Alloc guarantees that the allocated buffer (Vec<P>) will
+        // not be reallocated or dropped for 'f, that is, until the whole
+        // Alloc is reset and returned to the AllocManager.
+        // This is ensured by the fact that the Vec<P> length/capacity is not
+        // modified after FrameVec is turned into a slice.
         unsafe { &*slice_from_raw_parts(self.vec.as_ptr(), self.vec.len()) }
     }
 }
@@ -83,6 +90,7 @@ impl<P> Vecs<P> {
         type_size: &'s mut usize,
         vec: &'s mut Vec<MaybeUninit<P>>,
     ) -> &'s mut Vec<T> {
+        assert!(size_of::<T>() != 0);
         vec.clear();
 
         let byte_size = vec.len() * *type_size;
@@ -103,6 +111,8 @@ impl<P> Vecs<P> {
     fn get_new<T>(&mut self) -> &mut Vec<T> {
         assert_eq!(align_of::<T>(), align_of::<P>());
         if self.in_use == self.vecs.len() {
+            #[cfg(feature = "eprint_alloc")]
+            eprintln!("Adding a new Vec in a Vec<{}> allocator.", type_name::<P>());
             let vec = Vec::new();
             self.vecs.push((0, vec));
         }
@@ -123,10 +133,7 @@ impl<P> Vecs<P> {
     }
 }
 
-impl<P> Singles<P>
-where
-    MaybeUninit<P>: Clone,
-{
+impl<P> Singles<P> {
     fn size(&self) -> usize {
         self.slices
             .iter()
@@ -134,25 +141,53 @@ where
             .sum()
     }
 
+    fn make_slice(size: usize) -> Box<[MaybeUninit<P>]> {
+        #[cfg(feature = "eprint_alloc")]
+        eprintln!(
+            "Allocating a slice of size {size} for a Singles<{}> allocator.",
+            type_name::<P>()
+        );
+        let mut new_slice: Vec<MaybeUninit<P>> = Vec::with_capacity(size);
+        // SAFETY: exposing uninitialized memory is OK, because the contents is MaybeUninit<_>
+        unsafe { new_slice.set_len(size) };
+        new_slice.into_boxed_slice()
+    }
+
+    fn get_slice_idx(&self, min_size: usize) -> Option<usize> {
+        let mut idx = self.in_use;
+        loop {
+            let slice = &self.slices[idx];
+            let slice_big_enough = slice.len() - self.latest_filled_up_to >= min_size;
+            if slice_big_enough {
+                return Some(idx);
+            } else {
+                idx += 1;
+            }
+            if idx >= self.slices.len() {
+                return None;
+            }
+        }
+    }
+
     fn get_new<T>(&mut self) -> *mut T {
         assert_eq!(align_of::<T>(), align_of::<P>());
-        let t_size_in_p_units = size_of::<T>().div_ceil(size_of::<P>());
-        let slice = &mut *self.slices[self.in_use];
-        let ptr = if (slice.len() - self.latest_filled_up_to) * size_of::<P>() < size_of::<T>() {
-            let new_size = slice.len().max(t_size_in_p_units) * 2;
-            let new_slice = vec![MaybeUninit::<P>::uninit(); new_size].into_boxed_slice();
+        let t_size_in_p_units = size_of::<T>().div_ceil(size_of::<P>()); // Div should happen compile time
+        if let Some(slice_idx) = self.get_slice_idx(t_size_in_p_units) {
+            self.in_use = slice_idx;
+        } else {
+            self.in_use = self.slices.len();
+            let biggest_size = self.slices.last().expect("UNREACHABLE").len();
+            let new_size = biggest_size.max(t_size_in_p_units) * 2;
+            let new_slice = Self::make_slice(new_size);
             self.slices.push(new_slice);
             self.latest_filled_up_to = 0;
-            self.in_use += 1;
-            let t_range = self.latest_filled_up_to..self.latest_filled_up_to + t_size_in_p_units;
-            &raw mut self.slices[self.in_use][t_range]
-        } else {
-            let t_range = self.latest_filled_up_to..self.latest_filled_up_to + t_size_in_p_units;
-            &raw mut slice[t_range]
         };
 
+        let slice = &mut self.slices[self.in_use];
+        let t_range = self.latest_filled_up_to..self.latest_filled_up_to + t_size_in_p_units;
         self.latest_filled_up_to += t_size_in_p_units;
 
+        let ptr = &raw mut slice[t_range];
         ptr as *mut T
     }
 
@@ -162,7 +197,7 @@ where
     }
 
     fn new() -> Self {
-        let slice = vec![MaybeUninit::uninit(); 8].into_boxed_slice();
+        let slice = Self::make_slice(8);
         Self {
             slices: vec![slice],
             in_use: 0,
@@ -183,6 +218,7 @@ impl<'f> Alloc<'f> {
             + self.singles4.size()
             + self.singles2.size()
             + self.singles1.size();
+        dbg!(vecs_size, singles_size);
         vecs_size + singles_size
     }
 
@@ -229,7 +265,8 @@ impl<'r> Debug for Alloc<'r> {
 
 impl Default for Alloc<'static> {
     fn default() -> Self {
-        eprintln!("NEW ALLOC!");
+        #[cfg(feature = "eprint_alloc")]
+        eprintln!("Creating a new frame allocator");
         Alloc {
             alloc_seq: 1,
             _frame_lifetime: PhantomData,
@@ -268,6 +305,41 @@ mod tests {
     use std::fmt::Debug;
 
     use super::{Alloc, FrameVec, Singles, Vecs};
+
+    #[test]
+    #[should_panic]
+    fn test_wrong_align_single() {
+        let mut single = Singles::<u8>::new();
+        single.get_new::<u16>();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_wrong_align_vecs() {
+        let mut vecs = Vecs::<u8>::new();
+        vecs.get_new::<u16>();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_wrong_align_alloc_vec() {
+        #[repr(align(32))]
+        struct WeirdAlign;
+
+        let mut alloc = Alloc::default();
+        let mut vec = alloc.frame_vec();
+        vec.push(WeirdAlign);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_wrong_align_alloc_val() {
+        #[repr(align(32))]
+        struct WeirdAlign;
+
+        let mut alloc = Alloc::default();
+        let _ = alloc.frame_val(WeirdAlign);
+    }
 
     #[test]
     fn test_singles_u8() {
@@ -348,6 +420,36 @@ mod tests {
         vecs.get_new::<u8>().push(1);
         assert_eq!(vecs.size(), 8);
         vecs.get_new::<u8>();
+        vecs.get_new::<u8>();
+        assert_eq!(vecs.size(), 8);
+        let a = vecs.get_new::<u8>();
+        a.push(1);
+        assert_eq!(vecs.size(), 16);
+    }
+
+    #[test]
+    fn test_vecs_reset() {
+        let mut vecs = Vecs::<u8>::new();
+        assert_eq!(vecs.size(), 0);
+        vecs.get_new::<u8>();
+        vecs.get_new::<u8>().push(1);
+        assert_eq!(vecs.size(), 8);
+
+        vecs.reset();
+
+        assert_eq!(vecs.size(), 8); // Nothing gets deallocated
+        let a = vecs.get_new::<u8>();
+        assert_eq!(*a, []); // The 0th Vec is empty (of course)
+        let b = vecs.get_new::<u8>();
+        assert_eq!(*b, []); // The 1th Vec is cleared
+        b.push(1);
+        assert_eq!(vecs.size(), 8); // The 1th Vec has capacity of at least 1, so no allocations
+
+        vecs.reset();
+
+        vecs.get_new::<u8>().push(2);
+        vecs.get_new::<u8>();
+        assert_eq!(vecs.size(), 16); // Both 0th and 1th have now allocations
     }
 
     #[test]
@@ -361,15 +463,16 @@ mod tests {
             assert_eq!(vec.into_slice(), result.collect::<Vec<_>>().as_slice());
         }
         let mut alloc = Alloc::default();
-        assert_eq!(alloc.size(), 256);
 
-        let mut vec: FrameVec<u8> = alloc.frame_vec();
-        vec.push(0);
-        //helper(vec, 0..20);
-        assert_eq!(alloc.size(), 256);
+        let orig_size = alloc.size();
+        let vec: FrameVec<u8> = alloc.frame_vec();
+        helper(vec, 0..20);
+        assert_eq!(alloc.size(), orig_size + 32);
 
+        let orig_size = alloc.size();
         let vec: FrameVec<u16> = alloc.frame_vec();
         helper(vec, 20..40);
+        assert_eq!(alloc.size(), orig_size + 64);
 
         let vec: FrameVec<u32> = alloc.frame_vec();
         helper(vec, 40..60);
@@ -413,6 +516,41 @@ mod tests {
             helper(vec, 220..240);
         }
     }
+
+    #[test]
+    fn test_alloc_debug() {
+        let mut alloc = Alloc::default();
+        // 248 = default
+        assert_eq!(format!("{:?}", alloc), "Alloc { alloc_seq: 1, size: 248 }");
+
+        alloc.reset(2);
+        assert_eq!(format!("{:?}", alloc), "Alloc { alloc_seq: 2, size: 248 }");
+
+        alloc.frame_val(0_u32); // Fits in prealloc, so doesn't affect size
+
+        assert_eq!(format!("{:?}", alloc), "Alloc { alloc_seq: 2, size: 248 }");
+
+        let bytes_per = size_of::<u32>();
+
+        let mut vec = alloc.frame_vec();
+        vec.push(69_u32);
+        assert_eq!(alloc.vecs4.vecs[0].1.capacity(), bytes_per);
+
+        let mut test_vec = Vec::new();
+        test_vec.push(69_u32);
+        assert_eq!(test_vec.capacity(), bytes_per);
+
+        assert_eq!(alloc.size(), 248 + test_vec.capacity() * bytes_per);
+
+        assert_eq!(
+            format!("{:?}", alloc),
+            format!(
+                "Alloc {{ alloc_seq: 2, size: {} }}",
+                248 + test_vec.capacity() * bytes_per
+            ),
+        );
+    }
+
     #[test]
     fn test_frame_val() {
         let mut alloc = Alloc::default();

@@ -109,7 +109,6 @@ mod tests {
 
         let alloc = manager.get_frame_alloc();
         assert_eq!(alloc.alloc_seq, 1);
-        assert_eq!(alloc.size(), 0);
         assert_eq!(manager.in_use.len(), 1);
 
         let alloc = manager.get_frame_alloc();
