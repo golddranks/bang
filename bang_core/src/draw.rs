@@ -1,13 +1,13 @@
 use crate::alloc::Alloc;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct ScreenPos {
     pub x: f32,
     pub y: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct TextureID(u64);
 
@@ -48,6 +48,33 @@ impl<'f> DrawFrame<'f> {
         DrawFrame {
             alloc_seq: alloc.alloc_seq,
             cmds,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        alloc::Alloc,
+        draw::{Cmd, DrawFrame},
+    };
+
+    #[test]
+    fn test_debug_dummies() {
+        let mut alloc = Alloc::default();
+        let dummies = [(0.0, 0.0), (1.0, 1.0)];
+        let frame = DrawFrame::debug_dummies(&mut alloc, &dummies);
+        assert_eq!(frame.alloc_seq, alloc.alloc_seq);
+        assert_eq!(frame.cmds.len(), 1);
+        match &frame.cmds[0] {
+            &Cmd::DrawSQuads { texture, pos } => {
+                assert_eq!(texture.0, 0);
+                assert_eq!(pos.len(), 2);
+                assert_eq!(pos[0].x, 0.0);
+                assert_eq!(pos[0].y, 0.0);
+                assert_eq!(pos[1].x, 1.0);
+                assert_eq!(pos[1].y, 1.0);
+            }
         }
     }
 }

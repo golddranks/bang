@@ -28,3 +28,13 @@ impl GameState {
         GameState {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::GameState;
+
+    #[test]
+    fn test_game_state() {
+        let _ = GameState::new();
+    }
+}

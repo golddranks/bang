@@ -194,6 +194,9 @@ impl<P> Singles<P> {
     fn reset(&mut self) {
         self.in_use = 0;
         self.latest_filled_up_to = 0;
+        let biggest = self.slices.pop().expect("UNREACHABLE");
+        self.slices.clear();
+        self.slices.push(biggest);
     }
 
     fn new() -> Self {
@@ -408,9 +411,9 @@ mod tests {
 
         single.reset();
 
-        assert_eq!(single.size(), 216);
-        single.get_new::<[u16; 9]>(); // Overflowing the first, 16-byte slice by 2
-        assert_eq!(single.size(), 216); // Still fits in the next
+        assert_eq!(single.size(), 200); // The other than the bigger slice are dropped
+        single.get_new::<[u16; 100]>(); // Would overflow a 16-byte slice
+        assert_eq!(single.size(), 200); // But it fits this!
     }
 
     #[test]
