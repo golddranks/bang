@@ -1,26 +1,42 @@
-use std::{
-    mem::transmute,
-    ops::Not,
-    ptr::null_mut,
-    sync::atomic::{AtomicBool, AtomicPtr, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-static NOTIFY_END: AtomicPtr<()> = AtomicPtr::new(null_mut());
-static END: AtomicBool = AtomicBool::new(false);
-
-pub fn should_end() -> bool {
-    END.load(Ordering::Acquire)
+#[derive(Debug)]
+pub struct Ender {
+    should_end: AtomicBool,
+    notify_end: fn(ender: &Ender),
 }
 
-pub fn soft_quit() {
-    END.store(true, Ordering::Release);
-    let ptr = NOTIFY_END.load(Ordering::Acquire);
-    if ptr.is_null().not() {
-        let notify_end = unsafe { transmute::<*mut (), fn()>(ptr) };
-        notify_end();
+impl Ender {
+    pub fn new(notify_end: fn(ender: &Ender)) -> Self {
+        Ender {
+            should_end: AtomicBool::new(false),
+            notify_end,
+        }
+    }
+
+    pub fn should_end(&self) -> bool {
+        self.should_end.load(Ordering::Acquire)
+    }
+
+    pub fn soft_quit(&self) {
+        self.should_end.store(true, Ordering::Release);
+        (self.notify_end)(self);
     }
 }
 
-pub fn init_notify_end(notify_end: fn()) {
-    NOTIFY_END.store(notify_end as *mut (), Ordering::Release);
+#[cfg(test)]
+mod tests {
+    use std::ops::Not;
+
+    use super::*;
+
+    #[test]
+    fn test_end() {
+        let ender = Ender::new(|_| CALLED.store(true, Ordering::Release));
+        static CALLED: AtomicBool = AtomicBool::new(false);
+        assert!(ender.should_end().not());
+        ender.soft_quit();
+        assert!(ender.should_end());
+        assert!(CALLED.load(Ordering::Acquire));
+    }
 }

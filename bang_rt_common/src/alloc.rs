@@ -1,8 +1,13 @@
 use std::{
     collections::VecDeque,
     mem::transmute,
+    ops::Not,
     sync::atomic::{AtomicUsize, Ordering},
+    thread,
+    time::Duration,
 };
+
+use bang_core::alloc::Alloc;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -42,7 +47,20 @@ impl<'l> AllocRetirer<'l> {
         );
     }
 }
-use bang_core::alloc::Alloc;
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct AllocCleanup<'l> {
+    shared: &'l SharedAllocState,
+}
+
+impl<'l> AllocCleanup<'l> {
+    pub fn cleanup(&self) {
+        self.shared
+            .retired_seq_up_to
+            .fetch_max(usize::MAX, Ordering::Release);
+    }
+}
 
 #[derive(Debug)]
 #[repr(C)]
@@ -53,9 +71,9 @@ pub struct AllocManager<'l> {
     in_use: VecDeque<Alloc<'static>>,
 }
 
-pub fn new_alloc_pair<'l>(
+pub fn make_alloc_tools<'l>(
     shared: &'l mut SharedAllocState,
-) -> (AllocManager<'l>, AllocRetirer<'l>) {
+) -> (AllocManager<'l>, AllocRetirer<'l>, AllocCleanup<'l>) {
     (
         AllocManager {
             alloc_seq: 0,
@@ -64,26 +82,35 @@ pub fn new_alloc_pair<'l>(
             in_use: VecDeque::new(),
         },
         AllocRetirer { shared },
+        AllocCleanup { shared },
     )
 }
 
 impl<'l> AllocManager<'l> {
+    pub fn wait_until_cleanup(&mut self) {
+        while self.in_use.is_empty().not() {
+            thread::sleep(Duration::from_millis(1));
+            self.process_retired();
+        }
+    }
+
     fn process_retired(&mut self) {
-        let retired_up_to = self.shared.retired_seq_up_to.swap(0, Ordering::Acquire);
-        let retired_early = self.shared.retired_seq_early.swap(0, Ordering::Acquire);
+        let retired_up_to = self.shared.retired_seq_up_to.load(Ordering::SeqCst);
+        let retired_early = self.shared.retired_seq_early.swap(0, Ordering::SeqCst);
         while let Some(alloc) = self.in_use.front()
             && alloc.alloc_seq <= retired_up_to
         {
             let retired = self.in_use.pop_front().expect("UNREACHABLE");
             self.free_pool.push(retired);
         }
-        if retired_early > 0
-            && let Ok(early_idx) = self
-                .in_use
+        if retired_early > 0 {
+            self.in_use
                 .binary_search_by_key(&retired_early, |alloc| alloc.alloc_seq)
-        {
-            let retired = self.in_use.remove(early_idx).expect("UNREACHABLE");
-            self.free_pool.push(retired);
+                .map(|early_idx| {
+                    let retired = self.in_use.remove(early_idx).expect("UNREACHABLE");
+                    self.free_pool.push(retired);
+                })
+                .unwrap_or(());
         }
     }
 
@@ -105,7 +132,7 @@ mod tests {
     #[test]
     fn test_alloc_manager() {
         let mut shared = SharedAllocState::default();
-        let (mut manager, retirer) = new_alloc_pair(&mut shared);
+        let (mut manager, retirer, cleanup) = make_alloc_tools(&mut shared);
 
         let alloc = manager.get_frame_alloc();
         assert_eq!(alloc.alloc_seq, 1);
@@ -158,5 +185,8 @@ mod tests {
         assert_eq!(alloc.alloc_seq, 9);
         assert_eq!(manager.in_use.len(), 1);
         assert_eq!(manager.free_pool.len(), 2);
+
+        cleanup.cleanup();
+        manager.wait_until_cleanup();
     }
 }

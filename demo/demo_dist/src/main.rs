@@ -6,5 +6,5 @@ fn main() {
     eprintln!("Running statically");
     let fl = InlinedFrameLogic::new(frame_logic);
 
-    start_static::<MacOSRT>(fl);
+    start_static(MacOSRT, fl);
 }

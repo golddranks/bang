@@ -5,6 +5,9 @@ members = [
     "bang_rt_tui",
     "bang_rt_common",
     "bang_core",
-    "demo_impl",
-    "demo_dist",
+    "demo/demo_impl",
+    "demo/demo_dist",
+    "bang_rt_common/tests/test_normal_dylib",
+    "bang_rt_common/tests/test_panic_dylib",
+    "bang_rt_common/tests/test_symbol_missing_dylib",
 ]

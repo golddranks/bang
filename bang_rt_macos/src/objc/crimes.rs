@@ -182,6 +182,9 @@ impl OPtr {
         OPtr(NonNull::new(ptr).expect("CALLER BUG: must be called with non-null pointer"))
     }
 
+    pub fn get_index_ivars_ptr<T>(&mut self) -> *mut T {
+        object_getIndexedIvars(*self) as *mut T
+    }
     pub unsafe fn get_index_ivars<T>(&mut self) -> &mut T {
         let ptr = object_getIndexedIvars(*self) as *mut T;
         unsafe { &mut *ptr }
@@ -457,6 +460,10 @@ impl<T> crate::objc::TypedPtr for TypedObj<T> {
 }
 
 impl<T> TypedObj<T> {
+    pub fn get_inner_ptr(&mut self) -> *mut T {
+        self.0.get_index_ivars_ptr()
+    }
+
     pub fn get_inner(&mut self) -> &mut T {
         unsafe { &mut *self.0.get_index_ivars() }
     }
@@ -487,18 +494,21 @@ impl<T, P: TypedPtr> TypedCls<T, P> {
         Some(Self(cls, PhantomData))
     }
 
+    fn alloc(self, inner: T) -> AllocObj<TypedObj<T>> {
+        let mut alloc_obj = unsafe { self.0.alloc_indexed::<TypedObj<T>>(size_of::<T>()) };
+        let obj_inner: *mut T = alloc_obj.0.get_index_ivars_ptr();
+        unsafe { obj_inner.write(inner) };
+        alloc_obj
+    }
+
     pub fn alloc_init_upcasted(self, inner: T) -> P {
-        let alloc_obj = unsafe { self.0.alloc_indexed::<TypedObj<T>>(size_of::<T>()) };
-        let mut obj = TypedObj::init(alloc_obj);
-        let new_inner = obj.get_inner();
-        *new_inner = inner;
+        let alloc_obj = self.alloc(inner);
+        let obj = TypedObj::init(alloc_obj);
         unsafe { P::new(obj.0) }
     }
 
     pub fn alloc_upcasted(self, inner: T) -> AllocObj<P> {
-        let mut alloc_obj = unsafe { self.0.alloc_indexed::<TypedObj<T>>(size_of::<T>()) };
-        let obj_inner = unsafe { alloc_obj.0.get_index_ivars() };
-        *obj_inner = inner;
+        let alloc_obj = self.alloc(inner);
         AllocObj(alloc_obj.0, PhantomData)
     }
 }

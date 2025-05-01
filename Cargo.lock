@@ -11,6 +11,8 @@ name = "bang_rt_common"
 version = "0.1.0"
 dependencies = [
  "bang_core",
+ "test_normal_dylib",
+ "test_panic_dylib",
 ]
 
 [[package]]
@@ -40,6 +42,27 @@ dependencies = [
 
 [[package]]
 name = "demo_impl"
+version = "0.1.0"
+dependencies = [
+ "bang_core",
+]
+
+[[package]]
+name = "test_normal_dylib"
+version = "0.1.0"
+dependencies = [
+ "bang_core",
+]
+
+[[package]]
+name = "test_panic_dylib"
+version = "0.1.0"
+dependencies = [
+ "bang_core",
+]
+
+[[package]]
+name = "test_symbol_missing_dylib"
 version = "0.1.0"
 dependencies = [
  "bang_core",

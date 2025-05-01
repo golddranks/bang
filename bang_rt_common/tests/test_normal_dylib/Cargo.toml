@@ -1,5 +1,5 @@
 [package]
-name = "demo_impl"
+name = "test_normal_dylib"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,4 +7,7 @@ edition = "2024"
 crate-type = ["dylib", "rlib"]
 
 [dependencies]
-bang_core = { path = "../bang_core" }
+bang_core = { path = "../../../bang_core" }
+
+[features]
+export = []

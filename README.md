@@ -2,7 +2,6 @@
 
 ## Currently working on
 
-- Validating the threading systems with Miri
 - Actually draw with dummy texture according to the sent data
 
 ## Short term

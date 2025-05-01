@@ -10,21 +10,32 @@ pub enum KeyState {
 }
 
 impl KeyState {
-    fn relax(&mut self) {
-        match self {
-            KeyState::Pressed => *self = KeyState::Down,
-            KeyState::Down => *self = KeyState::Down,
-            KeyState::Released => *self = KeyState::Up,
-            KeyState::Up => *self = KeyState::Up,
-            KeyState::Tap => *self = KeyState::Up,
+    const fn relax(&mut self) {
+        *self = match self {
+            KeyState::Pressed => KeyState::Down,
+            KeyState::Released => KeyState::Up,
+            KeyState::Tap => KeyState::Up,
+            _ => *self,
+        };
+    }
+
+    const fn merge(&mut self, next: &mut KeyState) {
+        self.relax();
+        if next.edge() {
+            *self = *next;
+            *next = KeyState::Up;
         }
     }
 
-    pub fn down(&self) -> bool {
+    pub const fn edge(&self) -> bool {
+        matches!(self, KeyState::Pressed | KeyState::Released | KeyState::Tap)
+    }
+
+    pub const fn down(&self) -> bool {
         matches!(self, KeyState::Down | KeyState::Pressed | KeyState::Tap)
     }
 
-    pub fn up(&self) -> bool {
+    pub const fn up(&self) -> bool {
         matches!(self, KeyState::Up | KeyState::Released | KeyState::Tap)
     }
 }
@@ -40,14 +51,6 @@ pub struct InputState {
 }
 
 impl InputState {
-    pub fn relax(&mut self) {
-        self.space.relax();
-        self.up.relax();
-        self.down.relax();
-        self.left.relax();
-        self.right.relax();
-    }
-
     pub const fn new() -> Self {
         InputState {
             space: KeyState::Up,
@@ -56,6 +59,14 @@ impl InputState {
             left: KeyState::Up,
             right: KeyState::Up,
         }
+    }
+
+    pub const fn relax_and_merge(&mut self, next: &mut InputState) {
+        self.space.merge(&mut next.space);
+        self.up.merge(&mut next.up);
+        self.down.merge(&mut next.down);
+        self.left.merge(&mut next.left);
+        self.right.merge(&mut next.right);
     }
 
     pub fn update(&mut self, key: Key, state: KeyState) {
@@ -122,8 +133,9 @@ mod tests {
     use super::{InputState, Key, KeyState};
 
     #[test]
-    fn test_relax() {
+    fn test_relax_and_merge() {
         let mut state = InputState::new();
+        let mut neutral = InputState::new();
 
         let all_keys = &[Key::Down, Key::Left, Key::Right, Key::Up, Key::Space];
 
@@ -142,7 +154,7 @@ mod tests {
             assert_eq!(state, KeyState::Pressed);
         }
 
-        state.relax();
+        state.relax_and_merge(&mut neutral);
 
         for key in all_keys {
             let state = state.get(*key);
@@ -150,7 +162,7 @@ mod tests {
             assert_eq!(state, KeyState::Down);
         }
 
-        state.relax();
+        state.relax_and_merge(&mut neutral);
 
         for key in all_keys {
             let state = state.get(*key);
@@ -168,7 +180,7 @@ mod tests {
             assert_eq!(state, KeyState::Released);
         }
 
-        state.relax();
+        state.relax_and_merge(&mut neutral);
 
         for key in all_keys {
             let state = state.get(*key);
@@ -187,7 +199,7 @@ mod tests {
             assert!(state.down());
         }
 
-        state.relax();
+        state.relax_and_merge(&mut neutral);
 
         for key in all_keys {
             let state = state.get(*key);
@@ -205,12 +217,32 @@ mod tests {
             assert!(state.up());
         }
 
-        state.relax();
+        state.relax_and_merge(&mut neutral);
 
         for key in all_keys {
             let state = state.get(*key);
             assert_eq!(state, KeyState::Up);
             assert!(state.up());
+        }
+
+        let mut next = InputState::new();
+
+        for key in all_keys {
+            next.update(*key, KeyState::Pressed);
+        }
+
+        for key in all_keys {
+            let state = next.get(*key);
+            assert_eq!(state, KeyState::Pressed);
+        }
+
+        state.relax_and_merge(&mut next);
+
+        for key in all_keys {
+            let state = state.get(*key);
+            assert_eq!(state, KeyState::Pressed);
+            let state = next.get(*key);
+            assert_eq!(state, KeyState::Up);
         }
     }
 

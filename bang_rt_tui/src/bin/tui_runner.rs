@@ -1,4 +1,6 @@
-use bang_rt_common::runtime::start_dynamic;
+use std::ffi::CString;
+
+use bang_rt_common::{error::OrDie, runtime::start_dynamic};
 use bang_rt_tui::TuiRT;
 
 fn main() {
@@ -9,5 +11,5 @@ fn main() {
     };
     eprintln!("Running {libname} dynamically in TUI mode");
 
-    start_dynamic::<TuiRT>(&libname);
+    start_dynamic(TuiRT, &CString::new(libname).or_die("Invalid path"));
 }

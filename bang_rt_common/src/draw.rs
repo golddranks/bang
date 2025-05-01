@@ -34,7 +34,7 @@ pub struct DrawReceiver<'l> {
     fresh: &'l DrawFrame<'l>,
 }
 
-pub fn new_draw_pair<'l>(
+pub fn make_draw_tools<'l>(
     shared: &'l mut SharedDrawState<'l>,
     retirer: &'l mut AllocRetirer<'l>,
 ) -> (DrawSender<'l>, DrawReceiver<'l>) {
@@ -74,5 +74,48 @@ impl<'l> DrawReceiver<'l> {
 
     pub fn has_fresh(&self) -> bool {
         self.shared.fresh.load(Ordering::Acquire).is_null().not()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bang_core::draw::Cmd;
+
+    use super::*;
+    use crate::alloc::{SharedAllocState, make_alloc_tools};
+
+    #[test]
+    fn test_draw() {
+        let mut shared_draw = SharedDrawState::default();
+        let mut shared_alloc = SharedAllocState::default();
+        let (mut manager, mut retirer, cleanup) = make_alloc_tools(&mut shared_alloc);
+        let (mut sender, mut receiver) = make_draw_tools(&mut shared_draw, &mut retirer);
+
+        let mut alloc = manager.get_frame_alloc(); // Frame 1
+        let mut frame = DrawFrame::debug_dummies(&mut alloc, &[(1.0, 2.0), (3.0, 4.0)]);
+        sender.send(&mut frame);
+
+        assert!(receiver.has_fresh()); // Actually fresh
+        let fresh = receiver.get_fresh();
+        assert_eq!(fresh.alloc_seq, 1);
+        assert_eq!(fresh.cmds.len(), 1);
+        assert!(matches!(fresh.cmds[0], Cmd::DrawSQuads { .. }));
+
+        let fresh = receiver.get_fresh(); // The same as last time
+        assert_eq!(fresh.alloc_seq, 1);
+
+        let mut alloc = manager.get_frame_alloc(); // Frame 2
+        let mut frame = DrawFrame::debug_dummies(&mut alloc, &[(1.0, 2.0), (3.0, 4.0)]);
+        sender.send(&mut frame);
+
+        let mut alloc = manager.get_frame_alloc(); // Frame 3
+        let mut frame = DrawFrame::debug_dummies(&mut alloc, &[(1.0, 2.0), (3.0, 4.0)]);
+        sender.send(&mut frame); // Retire early frame 2
+
+        let fresh = receiver.get_fresh(); // Get frame 3
+        assert_eq!(fresh.alloc_seq, 3);
+
+        cleanup.cleanup();
+        manager.wait_until_cleanup();
     }
 }

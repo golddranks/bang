@@ -1,7 +1,5 @@
 use std::{error::Error, fmt::Display};
 
-use crate::end::soft_quit;
-
 #[derive(Debug, Clone, Copy)]
 struct NoneError;
 
@@ -25,7 +23,6 @@ impl Display for FalseError {
 impl Error for FalseError {}
 
 fn die(err: impl Error, msg: &str) -> ! {
-    soft_quit();
     panic!("{msg}: {err}");
 }
 
@@ -57,5 +54,35 @@ impl OrDie<bool> for bool {
             true => true,
             false => die(FalseError, msg),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_error_err() {
+        Err::<(), _>(NoneError).or_die("test_error_err");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_error_none() {
+        Option::<()>::None.or_die("test_error_none");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_error_false() {
+        false.or_die("test_error_false");
+    }
+
+    #[test]
+    fn test_error_truish() {
+        Ok::<(), NoneError>(()).or_die("test_error_truish");
+        Some(()).or_die("test_error_truish");
+        true.or_die("test_error_truish");
     }
 }

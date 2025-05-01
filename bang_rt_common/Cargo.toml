@@ -5,3 +5,7 @@ edition = "2024"
 
 [dependencies]
 bang_core = { path = "../bang_core" }
+
+[dev-dependencies]
+test_normal_dylib = { path = "tests/test_normal_dylib" }
+test_panic_dylib = { path = "tests/test_panic_dylib" }

@@ -4,8 +4,9 @@ use std::time::{Duration, Instant};
 use std::{io, ops::Not, os::unix::io::AsRawFd};
 
 use bang_core::input::{Key, KeyState};
+use bang_rt_common::end::Ender;
 use bang_rt_common::error::OrDie;
-use bang_rt_common::{draw::DrawReceiver, end::should_end, input::InputGatherer};
+use bang_rt_common::{draw::DrawReceiver, input::InputGatherer};
 
 use crate::draw::draw;
 
@@ -105,15 +106,21 @@ impl Drop for TerminalMode {
 pub struct Window<'l> {
     input_gatherer: InputGatherer<'l>,
     draw_receiver: DrawReceiver<'l>,
+    ender: &'l Ender,
     _terminal_mode: TerminalMode,
 }
 
 impl<'l> Window<'l> {
-    pub fn init(input_gatherer: InputGatherer<'l>, draw_receiver: DrawReceiver<'l>) -> Self {
+    pub fn init(
+        input_gatherer: InputGatherer<'l>,
+        draw_receiver: DrawReceiver<'l>,
+        ender: &'l Ender,
+    ) -> Self {
         let _terminal_mode = TerminalMode::new().or_die("Failed to initialize terminal mode");
         Window {
             input_gatherer,
             draw_receiver,
+            ender,
             _terminal_mode,
         }
     }
@@ -122,7 +129,7 @@ impl<'l> Window<'l> {
         thread::scope(|s| {
             s.spawn(|| {
                 let mut input_stream = std::io::stdin().lock().bytes();
-                while should_end().not() {
+                while self.ender.should_end().not() {
                     for byte in &mut input_stream {
                         let byte = byte.or_die("Error reading byte");
                         let state = KeyState::Tap;
@@ -133,12 +140,12 @@ impl<'l> Window<'l> {
             });
             let mut buf = Vec::new();
             let mut output_stream = std::io::stdout().lock();
-            while should_end().not() {
+            while self.ender.should_end().not() {
                 if self.draw_receiver.has_fresh() {
                     let frame = self.draw_receiver.get_fresh();
-                    draw(&frame, &mut output_stream, &mut buf);
+                    draw(frame, &mut output_stream, &mut buf);
                 }
-                sleep(Duration::from_millis(5));
+                sleep(Duration::from_millis(10));
             }
         });
     }

@@ -155,7 +155,7 @@ impl<P> Singles<P> {
 
     fn get_slice_idx(&self, min_size: usize) -> Option<usize> {
         let mut idx = self.in_use;
-        loop {
+        while idx < self.slices.len() {
             let slice = &self.slices[idx];
             let slice_big_enough = slice.len() - self.latest_filled_up_to >= min_size;
             if slice_big_enough {
@@ -163,25 +163,26 @@ impl<P> Singles<P> {
             } else {
                 idx += 1;
             }
-            if idx >= self.slices.len() {
-                return None;
-            }
         }
+        None
     }
 
     fn get_new<T>(&mut self) -> *mut T {
         assert_eq!(align_of::<T>(), align_of::<P>());
         let t_size_in_p_units = size_of::<T>().div_ceil(size_of::<P>()); // Div should happen compile time
-        if let Some(slice_idx) = self.get_slice_idx(t_size_in_p_units) {
-            self.in_use = slice_idx;
-        } else {
-            self.in_use = self.slices.len();
-            let biggest_size = self.slices.last().expect("UNREACHABLE").len();
-            let new_size = biggest_size.max(t_size_in_p_units) * 2;
-            let new_slice = Self::make_slice(new_size);
-            self.slices.push(new_slice);
-            self.latest_filled_up_to = 0;
-        };
+        match self.get_slice_idx(t_size_in_p_units) {
+            Some(slice_idx) => {
+                self.in_use = slice_idx;
+            }
+            None => {
+                self.in_use = self.slices.len();
+                let biggest_size = self.slices.last().expect("UNREACHABLE").len();
+                let new_size = biggest_size.max(t_size_in_p_units) * 2;
+                let new_slice = Self::make_slice(new_size);
+                self.slices.push(new_slice);
+                self.latest_filled_up_to = 0;
+            }
+        }
 
         let slice = &mut self.slices[self.in_use];
         let t_range = self.latest_filled_up_to..self.latest_filled_up_to + t_size_in_p_units;
@@ -221,7 +222,6 @@ impl<'f> Alloc<'f> {
             + self.singles4.size()
             + self.singles2.size()
             + self.singles1.size();
-        dbg!(vecs_size, singles_size);
         vecs_size + singles_size
     }
 
@@ -518,6 +518,13 @@ mod tests {
             let vec: FrameVec<u64> = alloc.frame_vec();
             helper(vec, 220..240);
         }
+    }
+
+    #[test]
+    fn test_frame_vec_drop() {
+        let mut vecs = Vecs::<u32>::new();
+        let _: &mut Vec<(u32, u32)> = vecs.get_new();
+        drop(vecs);
     }
 
     #[test]
