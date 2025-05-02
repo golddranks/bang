@@ -19,8 +19,9 @@ impl Runtime for MacOSRT {
         &self,
         input_gatherer: InputGatherer<'l>,
         draw_receiver: DrawReceiver<'l>,
-        _: &Ender,
+        ender: &Ender,
     ) -> Self::Window<'l> {
+        ender.install_global_signal_handler();
         Window::init(input_gatherer, draw_receiver)
     }
 

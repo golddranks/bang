@@ -118,8 +118,10 @@ mod tests {
 
     use super::*;
 
+    #[derive(Default)]
     struct TestRT {
         crash: bool,
+        synchro_crash: bool,
     }
 
     struct TestWindow<'l> {
@@ -127,6 +129,7 @@ mod tests {
         draw_receiver: DrawReceiver<'l>,
         ender: &'l Ender,
         crash: bool,
+        synchro_crash: bool,
     }
 
     impl Runtime for TestRT {
@@ -145,12 +148,17 @@ mod tests {
                 draw_receiver,
                 ender,
                 crash: self.crash,
+                synchro_crash: self.synchro_crash,
             }
         }
 
         fn run(win: &mut Self::Window<'_>) {
             if win.crash {
                 panic!("TestRT crashed!");
+            }
+            if win.synchro_crash {
+                while win.ender.should_end().not() {} // Busy wait for the other thread to crash
+                panic!("TestRT crashed synchronously with the logic loop!");
             }
             assert!(win.draw_receiver.has_fresh().not());
             win.input_gatherer
@@ -172,14 +180,14 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_runtime_dynamic() {
-        let rt = TestRT { crash: false };
+        let rt = TestRT::default();
         start_dynamic(rt, c"../target/tests/libtest_normal_dylib.dylib");
     }
 
     #[test]
     fn test_runtime_inline() {
         let fl = InlinedFrameLogic::new(test_frame_logic_normal);
-        let rt = TestRT { crash: false };
+        let rt = TestRT::default();
         start_static(rt, fl);
     }
 
@@ -187,7 +195,7 @@ mod tests {
     #[should_panic(expected = "Logic loop panicked")]
     fn test_logic_panic() {
         let fl = InlinedFrameLogic::new(test_frame_logic_panicking);
-        let rt = TestRT { crash: false };
+        let rt = TestRT::default();
         start_rt(rt, fl);
     }
 
@@ -195,7 +203,10 @@ mod tests {
     #[should_panic(expected = "Runtime loop panicked")]
     fn test_rt_panic() {
         let fl = InlinedFrameLogic::new(test_frame_logic_normal);
-        let rt = TestRT { crash: true };
+        let rt = TestRT {
+            crash: true,
+            synchro_crash: false,
+        };
         start_rt(rt, fl);
     }
 
@@ -203,7 +214,10 @@ mod tests {
     #[should_panic(expected = "Runtime and logic loops both panicked")]
     fn test_rt_logic_panic() {
         let fl = InlinedFrameLogic::new(test_frame_logic_panicking);
-        let rt = TestRT { crash: true };
+        let rt = TestRT {
+            crash: false,
+            synchro_crash: true,
+        };
         start_rt(rt, fl);
     }
 

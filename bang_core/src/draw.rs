@@ -1,3 +1,5 @@
+use std::slice;
+
 use crate::alloc::Alloc;
 
 #[derive(Debug, Clone, Copy)]
@@ -18,6 +20,17 @@ pub enum Cmd<'f> {
         texture: TextureID,
         pos: &'f [ScreenPos],
     },
+}
+
+impl Cmd<'_> {
+    pub fn as_bytes(pos: &[ScreenPos]) -> &[u8] {
+        unsafe {
+            slice::from_raw_parts(
+                pos.as_ptr() as *const u8,
+                pos.len() * std::mem::size_of::<ScreenPos>(),
+            )
+        }
+    }
 }
 
 #[derive(Debug)]

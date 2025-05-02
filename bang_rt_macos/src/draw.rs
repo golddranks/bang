@@ -1,5 +1,6 @@
 use std::ffi::CString;
 
+use bang_core::draw::Cmd;
 use bang_rt_common::{draw::DrawReceiver, error::OrDie};
 
 use crate::objc::{
@@ -39,6 +40,14 @@ extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr
     rencoder.set_rend_pl_state(state.rend_pl_state);
     rencoder.set_vtex_buf(state.vtex_buf, 0, 0);
     rencoder.set_vtex_bytes(&pos_phase.to_le_bytes(), 1);
+    for cmd in frame.cmds {
+        match cmd {
+            Cmd::DrawSQuads { pos, .. } => {
+                let bytes = Cmd::as_bytes(pos);
+                rencoder.set_vtex_bytes(bytes, 2);
+            }
+        }
+    }
     rencoder.draw_primitive(MTLPrimitiveType::Triangle, 0, 3);
     rencoder.end();
 

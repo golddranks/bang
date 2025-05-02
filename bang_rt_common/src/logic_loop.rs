@@ -24,5 +24,7 @@ pub fn run<'l>(
         let draw_frame = alloc.frame_val(draw_frame);
         sender.send(draw_frame);
     }
+    // To ensure that notify_end gets called in case of should_end being set "silently" by a signal handler
+    ender.soft_quit();
     alloc_manager.wait_until_cleanup();
 }
