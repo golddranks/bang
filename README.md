@@ -2,7 +2,7 @@
 
 ## Currently working on
 
-- Actually draw with dummy texture according to the sent data
+- Draw something with a pixelated texture
 
 ## Short term
 

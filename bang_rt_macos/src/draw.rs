@@ -1,14 +1,15 @@
 use std::ffi::CString;
 
-use bang_core::draw::Cmd;
-use bang_rt_common::{draw::DrawReceiver, error::OrDie};
+use bang_core::{Config, draw::Cmd};
+use bang_rt_common::{die, draw::DrawReceiver, end::Ender, error::OrDie};
 
 use crate::objc::{
-    NSString, Sel, TypedCls, TypedObj,
+    NSString, NSUInteger, Sel, TypedCls, TypedObj,
     wrappers::{
         CGSize, MTKView, MTKViewDelegate, MTLBuffer, MTLClearColor, MTLCommandQueue,
         MTLCompileOptions, MTLDevice, MTLPixelFormat, MTLPrimitiveType,
-        MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, NSUrl,
+        MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions,
+        MTLVertexDescriptor, MTLVertexFormat, NSUrl,
     },
 };
 
@@ -16,44 +17,73 @@ use crate::objc::{
 pub struct DrawState<'l> {
     draw_receiver: DrawReceiver<'l>,
     cmd_queue: MTLCommandQueue::PPtr,
-    vtex_buf: MTLBuffer::PPtr,
+    quad_vtex_buf: MTLBuffer::PPtr,
+    dbg_buf: MTLBuffer::PPtr,
     rend_pl_state: MTLRenderPipelineState::PPtr,
     frame: usize,
+    config: &'l Config,
+    ender: &'l Ender,
+}
+
+#[derive(Debug)]
+#[repr(C, align(8))]
+pub struct Globals {
+    pub frame: u32,
+    pub _pad: u32,
+    pub reso: [f32; 2],
+}
+
+impl Globals {
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self as *const _ as *const u8, size_of::<Self>()) }
+    }
 }
 
 extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr) {
     let state = dele.get_inner();
+    if state.ender.should_end() {
+        return;
+    }
     let frame = state.draw_receiver.get_fresh();
 
     let phase = state.frame % 100;
     let color_phase = 0.01 * phase as f64;
-    let pos_phase = 0.04 * phase as f32 - 2.0;
 
-    let pass_desc = view.current_rendpass_desc().or_die("rendpass_desc");
+    let globals = Globals {
+        frame: state.frame as u32,
+        _pad: 0,
+        reso: [
+            state.config.resolution.0 as f32,
+            state.config.resolution.1 as f32,
+        ],
+    };
+
+    let pass_desc = view.current_rendpass_desc().or_(die!("rendpass_desc"));
     pass_desc
         .color_attach()
         .at(0)
         .set_clear_color(MTLClearColor::new(color_phase, 0.0, 0.0, 1.0));
-    let cmd_buf = state.cmd_queue.cmd_buf().or_die("cmd_buf");
+    let cmd_buf = state.cmd_queue.cmd_buf().or_(die!("cmd_buf"));
 
-    let rencoder = cmd_buf.rencoder_with_desc(pass_desc).or_die("rencoder");
+    let rencoder = cmd_buf.rencoder_with_desc(pass_desc).or_(die!("rencoder"));
     rencoder.set_rend_pl_state(state.rend_pl_state);
-    rencoder.set_vtex_buf(state.vtex_buf, 0, 0);
-    rencoder.set_vtex_bytes(&pos_phase.to_le_bytes(), 1);
     for cmd in frame.cmds {
         match cmd {
             Cmd::DrawSQuads { pos, .. } => {
-                let bytes = Cmd::as_bytes(pos);
-                rencoder.set_vtex_bytes(bytes, 2);
+                rencoder.set_vtex_buf(state.quad_vtex_buf, 0, 0);
+                rencoder.set_vtex_bytes(globals.as_bytes(), 1);
+                rencoder.set_vtex_bytes(Cmd::as_bytes(pos), 2);
+                rencoder.set_vtex_buf(state.dbg_buf, 0, 3);
+                rencoder.draw_primitives(MTLPrimitiveType::TriangleStrip, 0, 4, pos.len());
             }
         }
     }
-    rencoder.draw_primitive(MTLPrimitiveType::Triangle, 0, 3);
     rencoder.end();
 
-    let drawable = view.current_drawable().or_die("drawable");
+    let drawable = view.current_drawable().or_(die!("drawable"));
     cmd_buf.present_drawable(drawable);
     cmd_buf.commit();
+    cmd_buf.wait_completion();
 
     state.frame += 1;
 }
@@ -69,7 +99,7 @@ extern "C" fn size_change(
 
 impl<'l> DrawState<'l> {
     pub fn init_delegate_cls() -> TypedCls<DrawState<'l>, MTKViewDelegate::PPtr> {
-        let cls = TypedCls::make_class(c"MTKViewDelegateWithDrawState").or_die("UNREACHABLE");
+        let cls = TypedCls::make_class(c"MTKViewDelegateWithDrawState").or_(die!("UNREACHABLE"));
         MTKViewDelegate::PPtr::implement(&cls, draw, size_change);
         cls
     }
@@ -78,21 +108,35 @@ impl<'l> DrawState<'l> {
         device: MTLDevice::PPtr,
         pixel_fmt: MTLPixelFormat,
         draw_receiver: DrawReceiver<'l>,
+        config: &'l Config,
+        ender: &'l Ender,
     ) -> Self {
         let cmd_queue = device
             .new_cmd_queue()
-            .or_die("new_cmd_queue: Failed to create command queue");
+            .or_(die!("new_cmd_queue: Failed to create command queue"));
 
-        let vtex: [Vertex; 3] = [
-            Vertex::new([1.0, 0.0, 0.0, 1.0], [-1.0, -1.0]),
-            Vertex::new([0.1, 1.0, 0.0, 1.0], [0.0, 1.0]),
-            Vertex::new([0.0, 0.0, 1.0, 1.0], [1.0, -1.0]),
+        let vtex: [Vertex; 4] = [
+            Vertex::new([-1.0, 1.0]),
+            Vertex::new([-1.0, -1.0]),
+            Vertex::new([1.0, 1.0]),
+            Vertex::new([1.0, -1.0]),
         ];
-        let vtex_buf = device
+        let quad_vtex_buf = device
             .new_buf(&vtex, MTLResourceOptions::DEFAULT)
-            .or_die("new_buf: Failed to create vertex buffer");
+            .or_(die!("quad_vtex_buf: Failed to create vertex buffer"));
 
-        let desc = MTLRenderPipelineDescriptor::IPtr::new();
+        let dbg = vec![
+            VertexOut {
+                color: [0.0, 0.0, 0.0, 0.0],
+                pos: [0.0, 0.0, 0.0, 0.0]
+            };
+            1024
+        ];
+        let dbg_buf = device
+            .new_buf(&dbg, MTLResourceOptions::DEFAULT)
+            .or_(die!("dbg_buf: Failed to create vertex buffer"));
+
+        let pl_desc = MTLRenderPipelineDescriptor::IPtr::new();
 
         let options = MTLCompileOptions::IPtr::new();
 
@@ -101,48 +145,66 @@ impl<'l> DrawState<'l> {
             Err(_) => {
                 eprintln!("Couldn't find precompiled shaders, compiling from source...");
                 let mut source = std::fs::read_to_string("bang_rt/src/shaders.metal")
-                    .or_die("Failed to read shader source");
+                    .or_(die!("Failed to read shader source"));
                 source.push('\0');
                 let source = NSString::IPtr::new(
                     &CString::from_vec_with_nul(source.into_bytes()).expect("UNREACHABLE"),
                 );
                 let lib = device
                     .new_lib_from_source(source, options)
-                    .or_die("failed to create library");
+                    .or_(die!("failed to create library"));
                 eprintln!("Compiled!");
                 lib
             }
         };
 
-        desc.set_vtex_fn(lib.new_fn(c"vertexShader"));
-        desc.set_frag_fn(lib.new_fn(c"fragmentShader"));
-        let attach = desc.color_attach().at(0);
+        pl_desc.set_vtex_fn(lib.new_fn(c"vertexShader"));
+        pl_desc.set_frag_fn(lib.new_fn(c"fragmentShader"));
+        let attach = pl_desc.color_attach().at(0);
 
         attach.set_pixel_fmt(pixel_fmt);
 
-        let rend_pl_state = device
-            .new_rend_pl_state(desc)
-            .or_die("new_rend_pl_state: Failed to create render pipeline state");
+        let vtex_desc = MTLVertexDescriptor::IPtr::new();
+        let attr_0 = vtex_desc.attributes().at(0);
+        attr_0.set_format(MTLVertexFormat::Float2);
+        attr_0.set_offset(0);
+        attr_0.set_buffer_index(0);
+        let layout_0 = vtex_desc.layouts().at(0);
+        layout_0.set_stride(size_of::<Vertex>() as NSUInteger);
+        pl_desc.set_vtex_desc(vtex_desc);
+
+        let rend_pl_state = device.new_rend_pl_state(pl_desc).or_(die!(
+            "new_rend_pl_state: Failed to create render pipeline state"
+        ));
 
         Self {
             draw_receiver,
             cmd_queue,
-            vtex_buf,
+            quad_vtex_buf,
+            dbg_buf,
             rend_pl_state,
             frame: 0,
+            config,
+            ender,
         }
     }
 }
 
-// The alignment is required because on GPU, we are using 4xf32 SIMD vectors
-#[repr(C, align(16))]
+// The alignment is required because on GPU, we are using 2xf32 SIMD vectors
+#[repr(C, align(8))]
 struct Vertex {
-    color: [f32; 4],
     pos: [f32; 2],
 }
 
+#[derive(Debug, Clone)]
+#[repr(C, align(16))]
+struct VertexOut {
+    color: [f32; 4],
+    pos: [f32; 4],
+}
+
 impl Vertex {
-    fn new(color: [f32; 4], pos: [f32; 2]) -> Self {
-        Vertex { color, pos }
+    fn new(pos: [f32; 2]) -> Self {
+        Vertex { pos }
     }
 }

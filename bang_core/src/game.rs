@@ -21,11 +21,17 @@ pub struct Pos(Vec2D);
 
 #[derive(Debug, Default)]
 #[repr(C)]
-pub struct GameState {}
+pub struct GameState {
+    pub frame: u64,
+}
 
 impl GameState {
     pub fn new() -> Self {
-        GameState {}
+        GameState { frame: 0 }
+    }
+
+    pub fn end_frame(&mut self) {
+        self.frame += 1;
     }
 }
 

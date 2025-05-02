@@ -2,6 +2,7 @@ mod draw;
 mod input;
 mod win;
 
+use bang_core::Config;
 use bang_rt_common::{draw::DrawReceiver, end::Ender, input::InputGatherer, runtime::Runtime};
 use win::Window;
 
@@ -19,9 +20,10 @@ impl Runtime for TuiRT {
         input_gatherer: InputGatherer<'l>,
         draw_receiver: DrawReceiver<'l>,
         ender: &'l Ender,
+        config: &'l Config,
     ) -> Self::Window<'l> {
         ender.install_global_signal_handler();
-        Window::init(input_gatherer, draw_receiver, ender)
+        Window::init(input_gatherer, draw_receiver, ender, config)
     }
 
     fn run(win: &mut Self::Window<'_>) {

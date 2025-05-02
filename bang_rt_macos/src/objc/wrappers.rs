@@ -1,17 +1,20 @@
 #![allow(dead_code)]
 use std::{
     error::Error,
-    ffi::CStr,
+    ffi::{CStr, c_void},
     fmt::{Debug, Display},
     ops::{Add, Sub},
 };
 
 use crate::objc::crimes::objc_prop_sel_init;
 
-use super::crimes::{
-    AllocObj, Bool, CGFloat, CPtr, NSInteger, NSString, NSUInteger, OPtr, Protocol, Ptr, Sel,
-    TypedCls, TypedObj, derive_BitOr, init_objc_core, msg0, msg1, msg2, msg3, msg4, objc_class,
-    objc_prop_impl, objc_protocol, sel::init,
+use super::{
+    TypedPtr,
+    crimes::{
+        AllocObj, Bool, CGFloat, CPtr, NSInteger, NSString, NSUInteger, OPtr, Protocol, Ptr, Sel,
+        TypedCls, TypedObj, derive_BitOr, init_objc_core, msg0, msg1, msg2, msg3, msg4, objc_class,
+        objc_prop_impl, objc_protocol, sel::init,
+    },
 };
 
 unsafe extern "C" {
@@ -54,6 +57,11 @@ objc_class!(NSEvent);
 objc_class!(NSMenu);
 objc_class!(NSMenuItem);
 objc_class!(NSProcessInfo);
+objc_class!(MTLVertexDescriptor);
+objc_class!(MTLVertexAttributeDescriptor);
+objc_class!(MTLVertexAttributeDescriptorArray);
+objc_class!(MTLVertexBufferLayoutDescriptor);
+objc_class!(MTLVertexBufferLayoutDescriptorArray);
 
 objc_protocol!(MTLDevice);
 objc_protocol!(MTLCommandQueue);
@@ -75,6 +83,8 @@ pub mod sel {
 
     // NSError
     objc_prop_sel!(code);
+    objc_prop_sel!(domain);
+    objc_prop_sel!(localizedDescription);
 
     // NSUrl
     objc_sel!(URLWithString_);
@@ -128,13 +138,18 @@ pub mod sel {
     objc_sel!(renderCommandEncoderWithDescriptor_);
     objc_sel!(presentDrawable_);
     objc_sel!(commit);
+    objc_sel!(waitUntilCompleted);
 
     // MTLRenderCommandEncoder
     objc_sel!(endEncoding);
     objc_sel!(setRenderPipelineState_);
     objc_sel!(setVertexBytes_length_atIndex_);
     objc_sel!(setVertexBuffer_offset_atIndex_);
-    objc_sel!(drawPrimitives_vertexStart_vertexCount_);
+    objc_sel!(drawPrimitives_vertexStart_vertexCount_instanceCount_);
+
+    //MTLBuffer
+    objc_sel!(contents);
+    objc_sel!(length);
 
     // MTLRenderPipelineDescriptor
     objc_prop_sel!(vertexFunction);
@@ -181,6 +196,19 @@ pub mod sel {
     // NSProcessInfo
     objc_prop_sel!(processInfo);
     objc_prop_sel!(systemUptime);
+
+    // MTLVertexDescriptor
+    objc_prop_sel!(vertexDescriptor);
+    objc_prop_sel!(attributes);
+    objc_prop_sel!(layouts);
+
+    // MTLVertexAttributeDescriptor
+    objc_prop_sel!(format);
+    objc_prop_sel!(offset);
+    objc_prop_sel!(bufferIndex);
+
+    // MTLVertexBufferLayoutDescriptor
+    objc_prop_sel!(stride);
 }
 
 pub fn init_objc() {
@@ -201,9 +229,16 @@ pub fn init_objc() {
     NSMenu::init();
     NSMenuItem::init();
     NSProcessInfo::init();
+    MTLVertexDescriptor::init();
+    MTLVertexAttributeDescriptor::init();
+    MTLVertexAttributeDescriptorArray::init();
+    MTLVertexBufferLayoutDescriptor::init();
+    MTLVertexBufferLayoutDescriptorArray::init();
 
     // NSError
     objc_prop_sel_init!(code);
+    objc_prop_sel_init!(domain);
+    objc_prop_sel_init!(localizedDescription);
 
     // NSUrl
     sel::URLWithString_.init();
@@ -259,13 +294,18 @@ pub fn init_objc() {
     sel::renderCommandEncoderWithDescriptor_.init();
     sel::presentDrawable_.init();
     sel::commit.init();
+    sel::waitUntilCompleted.init();
 
     // MTLRenderCommandEncoder
     sel::endEncoding.init();
     sel::setRenderPipelineState_.init();
     sel::setVertexBytes_length_atIndex_.init();
     sel::setVertexBuffer_offset_atIndex_.init();
-    sel::drawPrimitives_vertexStart_vertexCount_.init();
+    sel::drawPrimitives_vertexStart_vertexCount_instanceCount_.init();
+
+    // MTLBuffer
+    sel::contents.init();
+    sel::length.init();
 
     // MTLRenderPipelineDescriptor
     objc_prop_sel_init!(vertexFunction);
@@ -312,15 +352,36 @@ pub fn init_objc() {
     // NSProcessInfo
     objc_prop_sel_init!(processInfo);
     objc_prop_sel_init!(systemUptime);
+
+    // MTLVertexDescriptor
+    objc_prop_sel_init!(vertexDescriptor);
+    objc_prop_sel_init!(attributes);
+    objc_prop_sel_init!(layouts);
+
+    // MTLVertexAttributeDescriptor
+    objc_prop_sel_init!(format);
+    objc_prop_sel_init!(offset);
+    objc_prop_sel_init!(bufferIndex);
+
+    // MTLVertexBufferLayoutDescriptor
+    objc_prop_sel_init!(stride);
 }
 
 impl NSError::IPtr {
     objc_prop_impl!(code, NSInteger, code);
+    objc_prop_impl!(domain, NSString::IPtr, domain);
+    objc_prop_impl!(localizedDescription, NSString::IPtr, localized_desc);
 }
 
 impl Display for NSError::IPtr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.code())
+        write!(
+            f,
+            "NSError(code = {}, domain = {}, description = {})",
+            self.code(),
+            self.domain(),
+            self.localized_desc()
+        )
     }
 }
 
@@ -677,6 +738,10 @@ impl MTLCommandBuffer::PPtr {
     pub fn commit(&self) {
         unsafe { msg0::<()>(self.0, sel::commit.sel()) }
     }
+
+    pub fn wait_completion(&self) {
+        unsafe { msg0::<()>(self.0, sel::waitUntilCompleted.sel()) }
+    }
 }
 
 impl MTLRenderCommandEncoder::PPtr {
@@ -714,19 +779,21 @@ impl MTLRenderCommandEncoder::PPtr {
         }
     }
 
-    pub fn draw_primitive(
+    pub fn draw_primitives(
         &self,
         primitive_type: MTLPrimitiveType,
         vertex_start: usize,
         vertex_count: usize,
+        instance_count: usize,
     ) {
         unsafe {
-            msg3::<(), MTLPrimitiveType, NSUInteger, NSUInteger>(
+            msg4::<(), MTLPrimitiveType, NSUInteger, NSUInteger, NSUInteger>(
                 self.0,
-                sel::drawPrimitives_vertexStart_vertexCount_.sel(),
+                sel::drawPrimitives_vertexStart_vertexCount_instanceCount_.sel(),
                 primitive_type,
                 vertex_start as NSUInteger,
                 vertex_count as NSUInteger,
+                instance_count as NSUInteger,
             )
         }
     }
@@ -758,6 +825,12 @@ impl MTLRenderPipelineDescriptor::IPtr {
         MTLRenderPipelineColorAttachmentDescriptorArray::IPtr,
         color_attach,
         set_color_attach
+    );
+    objc_prop_impl!(
+        vertexDescriptor,
+        MTLVertexDescriptor::IPtr,
+        vtex_desc,
+        set_vtex_desc
     );
 }
 
@@ -1010,4 +1083,78 @@ impl NSProcessInfo::IPtr {
     }
 
     objc_prop_impl!(systemUptime, NSTimeInterval, system_uptime);
+}
+
+impl MTLVertexDescriptor::IPtr {
+    pub fn new() -> Self {
+        unsafe {
+            msg0::<Self>(
+                MTLVertexDescriptor::CLS.obj(),
+                sel::vertexDescriptor::GETTER.sel(),
+            )
+        }
+    }
+
+    objc_prop_impl!(
+        attributes,
+        MTLVertexAttributeDescriptorArray::IPtr,
+        attributes
+    );
+    objc_prop_impl!(layouts, MTLVertexBufferLayoutDescriptorArray::IPtr, layouts);
+}
+
+impl MTLVertexAttributeDescriptorArray::IPtr {
+    pub fn at(&self, idx: usize) -> MTLVertexAttributeDescriptor::IPtr {
+        unsafe {
+            msg1::<MTLVertexAttributeDescriptor::IPtr, NSUInteger>(
+                self.obj(),
+                sel::objectAtIndexedSubscript_.sel(),
+                idx as NSUInteger,
+            )
+        }
+    }
+}
+
+impl MTLVertexBufferLayoutDescriptorArray::IPtr {
+    pub fn at(&self, idx: usize) -> MTLVertexBufferLayoutDescriptor::IPtr {
+        unsafe {
+            msg1::<MTLVertexBufferLayoutDescriptor::IPtr, NSUInteger>(
+                self.obj(),
+                sel::objectAtIndexedSubscript_.sel(),
+                idx as NSUInteger,
+            )
+        }
+    }
+}
+
+impl MTLVertexAttributeDescriptor::IPtr {
+    objc_prop_impl!(format, MTLVertexFormat, format, set_format);
+    objc_prop_impl!(offset, NSUInteger, offset, set_offset);
+    objc_prop_impl!(bufferIndex, NSUInteger, buf_idx, set_buffer_index);
+}
+
+impl MTLVertexBufferLayoutDescriptor::IPtr {
+    objc_prop_impl!(stride, NSUInteger, stride, set_stride);
+}
+
+#[repr(i64)]
+#[derive(Debug)]
+pub enum MTLVertexFormat {
+    Invalid = 0,
+    Float = 28,
+    Float2 = 29,
+    Float3 = 30,
+    Float4 = 31,
+}
+
+impl MTLBuffer::PPtr {
+    pub fn len(&self) -> usize {
+        unsafe { msg0::<NSUInteger>(self.obj(), sel::length.sel()) as usize }
+    }
+
+    pub fn contents(&self) -> &[u8] {
+        let len = self.len();
+        let ptr = unsafe { msg0::<*mut c_void>(self.obj(), sel::contents.sel()) };
+        unsafe { std::slice::from_raw_parts(ptr as *const u8, len) }
+    }
 }

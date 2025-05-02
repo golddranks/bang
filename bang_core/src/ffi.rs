@@ -13,6 +13,13 @@ macro_rules! frame_logic_sym_name {
 }
 
 #[macro_export]
+macro_rules! config_sym_name {
+    () => {
+        "config_000"
+    };
+}
+
+#[macro_export]
 macro_rules! export_frame_logic {
     ($impl:ident) => {
         #[unsafe(export_name = $crate::frame_logic_sym_name!())]
@@ -24,5 +31,13 @@ macro_rules! export_frame_logic {
             let implementation: $crate::ffi::FrameLogicFn = $impl;
             implementation(alloc, input, game_state)
         }
+    };
+}
+
+#[macro_export]
+macro_rules! export_config {
+    ($config:expr) => {
+        #[unsafe(export_name = $crate::config_sym_name!())]
+        static __CONFIG: Config = $config;
     };
 }

@@ -4,11 +4,11 @@ use std::{
 };
 
 use bang_core::{
-    alloc::Alloc, draw::DrawFrame, ffi::FrameLogicExternFn, frame_logic_sym_name, game::GameState,
-    input::InputState,
+    Config, alloc::Alloc, config_sym_name, draw::DrawFrame, ffi::FrameLogicExternFn,
+    frame_logic_sym_name, game::GameState, input::InputState,
 };
 
-use crate::error::OrDie;
+use crate::{die, error::OrDie};
 
 unsafe extern "C" {
     safe fn dlopen(path: *const c_char, mode: c_int) -> Option<NonNull<c_void>>;
@@ -17,13 +17,18 @@ unsafe extern "C" {
 
 const RTLD_LAZY: c_int = 1;
 
-pub fn get_frame_logic(lib: &CStr) -> FrameLogicExternFn {
-    let lib_ptr = dlopen(lib.as_ptr(), RTLD_LAZY).or_die("Failed to load library");
-    let sym_name = CString::new(frame_logic_sym_name!()).expect("UNREACHABLE");
-    let Some(frame_logic_ptr) = dlsym(lib_ptr, sym_name.as_ptr()) else {
-        panic!("Failed to find symbol: {sym_name:?}");
-    };
-    unsafe { std::mem::transmute::<NonNull<c_void>, FrameLogicExternFn>(frame_logic_ptr) }
+pub fn get_symbols(lib: &CStr) -> (FrameLogicExternFn, Config) {
+    let lib_ptr = dlopen(lib.as_ptr(), RTLD_LAZY).or_(die!("Failed to load library"));
+    let frame_logic_sym_name = CString::new(frame_logic_sym_name!()).expect("UNREACHABLE");
+    let frame_logic_ptr = dlsym(lib_ptr, frame_logic_sym_name.as_ptr())
+        .or_(die!("Failed to find symbol: {frame_logic_sym_name:?}"));
+    let config_sym_name = CString::new(config_sym_name!()).expect("UNREACHABLE");
+    let config_ptr = dlsym(lib_ptr, config_sym_name.as_ptr())
+        .or_(die!("Failed to find symbol: {config_sym_name:?}"));
+    let frame_logic =
+        unsafe { std::mem::transmute::<NonNull<c_void>, FrameLogicExternFn>(frame_logic_ptr) };
+    let config = unsafe { std::mem::transmute::<NonNull<c_void>, &Config>(config_ptr) };
+    (frame_logic, config.clone())
 }
 
 pub trait FrameLogic<'f>: Send {
@@ -89,7 +94,7 @@ pub mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_load() {
-        let frame_logic = get_frame_logic(c"../target/tests/libtest_normal_dylib.dylib");
+        let (frame_logic, _config) = get_symbols(c"../target/tests/libtest_normal_dylib.dylib");
         let mut alloc = Alloc::default();
         let input_state = InputState::default();
         let mut game_state = GameState::default();
@@ -100,13 +105,13 @@ pub mod tests {
     #[cfg_attr(miri, ignore)]
     #[should_panic(expected = "Failed to load library")]
     fn test_lib_not_found() {
-        get_frame_logic(c"nonexisting.dylib");
+        get_symbols(c"nonexisting.dylib");
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
     #[should_panic(expected = "Failed to find symbol")]
     fn test_lib_missing_symbol() {
-        get_frame_logic(c"../target/tests/libtest_symbol_missing_dylib.dylib");
+        get_symbols(c"../target/tests/libtest_symbol_missing_dylib.dylib");
     }
 }

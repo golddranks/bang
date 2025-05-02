@@ -1,16 +1,16 @@
 use std::io::{StdoutLock, Write};
 
 use bang_core::draw::{Cmd, DrawFrame};
-use bang_rt_common::error::OrDie;
+use bang_rt_common::{die, error::OrDie};
 
 const CSI: &str = "\x1b[";
 
 fn move_to(buf: &mut Vec<u8>, row: u32, col: u32) {
-    write!(buf, "{CSI}{row};{col}H").or_die("Error moving cursor");
+    write!(buf, "{CSI}{row};{col}H").or_(die!("Error moving cursor"));
 }
 
 fn erase_screen(buf: &mut Vec<u8>) {
-    write!(buf, "{CSI}2J").or_die("Error erasing screen");
+    write!(buf, "{CSI}2J").or_(die!("Error erasing screen"));
 }
 
 pub fn draw(frame: &DrawFrame, output_stream: &mut StdoutLock<'static>, buf: &mut Vec<u8>) {
@@ -25,14 +25,14 @@ pub fn draw(frame: &DrawFrame, output_stream: &mut StdoutLock<'static>, buf: &mu
                     let col = ((pos.x + 200.0) / 10.0) as u32;
                     for r in 0..3 {
                         move_to(buf, row + r, col);
-                        write!(buf, "{chars}").or_die("Error writing to buffer");
+                        write!(buf, "{chars}").or_(die!("Error writing to buffer"));
                     }
                 }
                 move_to(buf, 0, 0);
                 output_stream
                     .write_all(buf)
-                    .or_die("Error writing to stdout");
-                output_stream.flush().or_die("Error flushing stdout");
+                    .or_(die!("Error writing to stdout"));
+                output_stream.flush().or_(die!("Error flushing stdout"));
             }
         }
     }

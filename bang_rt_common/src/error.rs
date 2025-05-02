@@ -1,88 +1,139 @@
-use std::{error::Error, fmt::Display};
+use std::fmt::Display;
 
-#[derive(Debug, Clone, Copy)]
-struct NoneError;
+#[must_use]
+pub struct EndMsg<M> {
+    pub callback: M,
+    pub file: &'static str,
+    pub line: u32,
+}
 
-impl Display for NoneError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NoneError")
+impl<M> EndMsg<M>
+where
+    M: FnOnce() -> String,
+{
+    pub fn end_with(self, causing_err: impl Display) -> ! {
+        panic!(
+            "[{}:{}]: {}: {}",
+            self.file,
+            self.line,
+            (self.callback)(),
+            causing_err
+        );
+    }
+
+    pub fn new(callback: M, file: &'static str, line: u32) -> Self {
+        Self {
+            file,
+            line,
+            callback,
+        }
     }
 }
 
-impl Error for NoneError {}
-
-#[derive(Debug, Clone, Copy)]
-struct FalseError;
-
-impl Display for FalseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "FalseError")
-    }
+#[macro_export]
+macro_rules! die_now {
+    () => {
+        $crate::error::EndMsg::new(|| "".to_string(), file!(), line!()).end_with("")
+    };
+    ($fmt:literal $(, $args:expr)*) => {
+        $crate::error::EndMsg::new(|| format!($fmt, $($args),*), file!(), line!()).end_with("")
+    };
 }
 
-impl Error for FalseError {}
-
-fn die(err: impl Error, msg: &str) -> ! {
-    panic!("{msg}: {err}");
+#[macro_export]
+macro_rules! die {
+    () => {
+        $crate::error::EndMsg::new(|| "".to_string(), file!(), line!())
+    };
+    ($fmt:literal $(, $args:expr)*) => {
+        $crate::error::EndMsg::new(|| format!($fmt, $($args),*), file!(), line!())
+    };
 }
 
 pub trait OrDie<T> {
-    fn or_die(self, msg: &str) -> T;
+    fn or_<M>(self, end_msg: EndMsg<M>) -> T
+    where
+        M: FnOnce() -> String;
 }
 
-impl<T, E: Error> OrDie<T> for Result<T, E> {
-    fn or_die(self, msg: &str) -> T {
+impl<T, E> OrDie<T> for Result<T, E>
+where
+    E: Display,
+{
+    fn or_<M>(self, end_msg: EndMsg<M>) -> T
+    where
+        M: FnOnce() -> String,
+    {
         match self {
-            Ok(value) => value,
-            Err(err) => die(err, msg),
+            Ok(t) => t,
+            Err(e) => end_msg.end_with(e),
         }
     }
 }
 
 impl<T> OrDie<T> for Option<T> {
-    fn or_die(self, msg: &str) -> T {
+    fn or_<M>(self, end_msg: EndMsg<M>) -> T
+    where
+        M: FnOnce() -> String,
+    {
         match self {
-            Some(value) => value,
-            None => die(NoneError, msg),
+            Some(t) => t,
+            None => end_msg.end_with(""),
         }
     }
 }
 
 impl OrDie<bool> for bool {
-    fn or_die(self, msg: &str) -> bool {
+    fn or_<M>(self, end_msg: EndMsg<M>) -> bool
+    where
+        M: FnOnce() -> String,
+    {
         match self {
             true => true,
-            false => die(FalseError, msg),
+            false => end_msg.end_with(""),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use super::*;
+
+    #[derive(Debug)]
+    struct TestError;
+
+    impl Display for TestError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "TestError")
+        }
+    }
+
+    impl Error for TestError {}
 
     #[test]
     #[should_panic]
     fn test_error_err() {
-        Err::<(), _>(NoneError).or_die("test_error_err");
+        Err::<(), _>(TestError).or_(die!("test_error_err"));
     }
 
     #[test]
     #[should_panic]
     fn test_error_none() {
-        Option::<()>::None.or_die("test_error_none");
+        Option::<()>::None.or_(die!("test_error_none"));
     }
 
     #[test]
     #[should_panic]
     fn test_error_false() {
-        false.or_die("test_error_false");
+        false.or_(die!("test_error_false"));
     }
 
     #[test]
     fn test_error_truish() {
-        Ok::<(), NoneError>(()).or_die("test_error_truish");
-        Some(()).or_die("test_error_truish");
-        true.or_die("test_error_truish");
+        Ok::<(), TestError>(()).or_(die!("test_error_truish"));
+        Some(()).or_(die!("test_error_truish"));
+        true.or_(die!("test_error_truish"));
     }
 }

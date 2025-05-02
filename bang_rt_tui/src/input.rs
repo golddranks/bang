@@ -22,7 +22,7 @@ pub fn gather(ender: &Ender, input_gatherer: &mut InputGatherer) {
                     thread::sleep(Duration::from_millis(LOOP_MS));
                     continue;
                 } else {
-                    panic!("Error reading input: {}", e);
+                    panic!("Error reading input: {e}");
                 }
             }
         }

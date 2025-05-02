@@ -95,8 +95,8 @@ impl<P> Vecs<P> {
 
         let byte_size = vec.len() * *type_size;
         let byte_cap = vec.capacity() * *type_size;
-        let new_len = byte_size / size_of::<T>();
-        let new_cap = byte_cap / size_of::<T>();
+        let new_len = byte_size / size_of::<T>(); // The divisor is known compile-time and is a power of 2
+        let new_cap = byte_cap / size_of::<T>(); // Likewise
         let new_ptr = vec.as_mut_ptr() as *mut T;
 
         *type_size = size_of::<T>();
@@ -169,7 +169,7 @@ impl<P> Singles<P> {
 
     fn get_new<T>(&mut self) -> *mut T {
         assert_eq!(align_of::<T>(), align_of::<P>());
-        let t_size_in_p_units = size_of::<T>().div_ceil(size_of::<P>()); // Div should happen compile time
+        let t_size_in_p_units = size_of::<T>().div_ceil(size_of::<P>()); // Division should happen compile time
         match self.get_slice_idx(t_size_in_p_units) {
             Some(slice_idx) => {
                 self.in_use = slice_idx;

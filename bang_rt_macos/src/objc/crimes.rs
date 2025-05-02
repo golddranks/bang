@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::{
     ffi::{CStr, CString, c_char, c_double, c_longlong, c_ulonglong, c_void},
-    fmt::Debug,
+    fmt::{Debug, Display},
     marker::PhantomData,
     mem::transmute,
     ops::Not,
@@ -740,6 +740,12 @@ impl NSString::IPtr {
 }
 
 impl Debug for NSString::IPtr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_cstr().fmt(f)
+    }
+}
+
+impl Display for NSString::IPtr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.as_cstr().fmt(f)
     }

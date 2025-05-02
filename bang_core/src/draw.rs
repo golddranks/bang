@@ -24,12 +24,7 @@ pub enum Cmd<'f> {
 
 impl Cmd<'_> {
     pub fn as_bytes(pos: &[ScreenPos]) -> &[u8] {
-        unsafe {
-            slice::from_raw_parts(
-                pos.as_ptr() as *const u8,
-                pos.len() * std::mem::size_of::<ScreenPos>(),
-            )
-        }
+        unsafe { slice::from_raw_parts(pos.as_ptr() as *const u8, size_of_val(pos)) }
     }
 }
 
@@ -72,6 +67,8 @@ mod tests {
         draw::{Cmd, DrawFrame},
     };
 
+    use super::ScreenPos;
+
     #[test]
     fn test_debug_dummies() {
         let mut alloc = Alloc::default();
@@ -95,5 +92,13 @@ mod tests {
                 assert_eq!(pos[1].y, 1.0);
             }
         }
+    }
+
+    #[test]
+    fn test_as_bytes() {
+        let x = 1.0_f32.to_le_bytes();
+        let y = 2.0_f32.to_le_bytes();
+        let xy = [x, y].concat();
+        assert_eq!(Cmd::as_bytes(&[ScreenPos { x: 1.0, y: 2.0 }]), xy);
     }
 }

@@ -5,12 +5,14 @@ use std::{
     thread,
 };
 
+use bang_core::Config;
+
 use crate::{
     alloc::{SharedAllocState, make_alloc_tools},
     draw::{DrawReceiver, SharedDrawState, make_draw_tools},
     end::Ender,
     input::{InputGatherer, SharedInputState, make_input_tools},
-    load::{FrameLogic, get_frame_logic},
+    load::{FrameLogic, get_symbols},
     logic_loop,
 };
 
@@ -22,18 +24,23 @@ pub trait Runtime {
         input_gatherer: InputGatherer<'l>,
         draw_receiver: DrawReceiver<'l>,
         ender: &'l Ender,
+        config: &'l Config,
     ) -> Self::Window<'l>;
     fn run(win: &mut Self::Window<'_>);
     fn notify_end(ender: &Ender);
 }
 
 pub fn start_dynamic<RT: Runtime>(rt: RT, lib: &CStr) {
-    let frame_logic = get_frame_logic(lib);
-    start_rt(rt, frame_logic);
+    let (frame_logic, config) = get_symbols(lib);
+    start_rt(rt, frame_logic, &config);
 }
 
-pub fn start_static<'l, RT: Runtime>(rt: RT, frame_logic: impl FrameLogic<'l>) {
-    start_rt(rt, frame_logic);
+pub fn start_static<'l, RT: Runtime>(
+    rt: RT,
+    frame_logic: impl FrameLogic<'l>,
+    config: &'static Config,
+) {
+    start_rt(rt, frame_logic, config);
 }
 
 fn downcast(msg: &Box<dyn Any + Send>) -> &str {
@@ -46,7 +53,7 @@ fn downcast(msg: &Box<dyn Any + Send>) -> &str {
     }
 }
 
-pub fn start_rt<'l, RT: Runtime>(rt: RT, frame_logic: impl FrameLogic<'l>) {
+pub fn start_rt<'l, RT: Runtime>(rt: RT, frame_logic: impl FrameLogic<'l>, config: &'l Config) {
     rt.init_rt();
 
     let mut shared_input_state = SharedInputState::default();
@@ -57,7 +64,7 @@ pub fn start_rt<'l, RT: Runtime>(rt: RT, frame_logic: impl FrameLogic<'l>) {
     let mut shared_draw_state = SharedDrawState::default();
     let (draw_sender, draw_receiver) = make_draw_tools(&mut shared_draw_state, &mut alloc_retirer);
     let ender = Ender::new(RT::notify_end);
-    let mut window = rt.init_win(input_gatherer, draw_receiver, &ender);
+    let mut window = rt.init_win(input_gatherer, draw_receiver, &ender, config);
 
     let mut logic_err = None;
     let mut rt_err = None;
@@ -71,6 +78,7 @@ pub fn start_rt<'l, RT: Runtime>(rt: RT, frame_logic: impl FrameLogic<'l>) {
                     draw_sender,
                     alloc_manager,
                     &ender,
+                    config,
                 )
             }))
             .unwrap_or_else(|err| logic_err = Some(err));
@@ -118,6 +126,12 @@ mod tests {
 
     use super::*;
 
+    const TEST_CONFIG: Config = Config {
+        name: "Test",
+        resolution: (800, 600),
+        logic_fps: 60,
+    };
+
     #[derive(Default)]
     struct TestRT {
         crash: bool,
@@ -142,6 +156,7 @@ mod tests {
             input_gatherer: InputGatherer<'l>,
             draw_receiver: DrawReceiver<'l>,
             ender: &'l Ender,
+            _config: &'l Config,
         ) -> Self::Window<'l> {
             TestWindow {
                 input_gatherer,
@@ -188,7 +203,7 @@ mod tests {
     fn test_runtime_inline() {
         let fl = InlinedFrameLogic::new(test_frame_logic_normal);
         let rt = TestRT::default();
-        start_static(rt, fl);
+        start_static(rt, fl, &TEST_CONFIG);
     }
 
     #[test]
@@ -196,7 +211,7 @@ mod tests {
     fn test_logic_panic() {
         let fl = InlinedFrameLogic::new(test_frame_logic_panicking);
         let rt = TestRT::default();
-        start_rt(rt, fl);
+        start_rt(rt, fl, &TEST_CONFIG);
     }
 
     #[test]
@@ -207,7 +222,7 @@ mod tests {
             crash: true,
             synchro_crash: false,
         };
-        start_rt(rt, fl);
+        start_rt(rt, fl, &TEST_CONFIG);
     }
 
     #[test]
@@ -218,7 +233,7 @@ mod tests {
             crash: false,
             synchro_crash: true,
         };
-        start_rt(rt, fl);
+        start_rt(rt, fl, &TEST_CONFIG);
     }
 
     #[test]

@@ -45,4 +45,4 @@ tarpaulin-report.html:	bang_rt_common/src/*.rs \
 						target/tests/libtest_normal_dylib.dylib \
 						target/tests/libtest_panic_dylib.dylib \
 						target/tests/libtest_symbol_missing_dylib.dylib
-	cargo tarpaulin -p bang_rt_common -p bang_core --exclude-files bang_rt_common/tests --lib -o html
+	cargo tarpaulin -p bang_rt_common -p bang_core --lib -o html

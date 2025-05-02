@@ -69,6 +69,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_signal_handler() {
         let ender = Ender::new(|_| CALLED.store(true, Ordering::Release));
         static CALLED: AtomicBool = AtomicBool::new(false);

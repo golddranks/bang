@@ -2,6 +2,8 @@ use std::thread::{self, sleep};
 use std::time::Duration;
 use std::{io, ops::Not, os::unix::io::AsRawFd};
 
+use bang_core::Config;
+use bang_rt_common::die;
 use bang_rt_common::end::Ender;
 use bang_rt_common::error::OrDie;
 use bang_rt_common::{draw::DrawReceiver, input::InputGatherer};
@@ -125,8 +127,9 @@ impl<'l> Window<'l> {
         input_gatherer: InputGatherer<'l>,
         draw_receiver: DrawReceiver<'l>,
         ender: &'l Ender,
+        _config: &'l Config,
     ) -> Self {
-        let _terminal_mode = TerminalMode::new().or_die("Failed to initialize terminal mode");
+        let _terminal_mode = TerminalMode::new().or_(die!("Failed to initialize terminal mode"));
         Window {
             input_gatherer,
             draw_receiver,
@@ -140,11 +143,11 @@ impl<'l> Window<'l> {
         let draw_receiver = &mut self.draw_receiver;
         thread::scope(|s| {
             s.spawn(|| input::gather(self.ender, gatherer));
-            Self::logic_loop(self.ender, draw_receiver);
+            Self::render_loop(self.ender, draw_receiver);
         });
     }
 
-    fn logic_loop(ender: &'l Ender, draw_receiver: &mut DrawReceiver<'l>) {
+    fn render_loop(ender: &'l Ender, draw_receiver: &mut DrawReceiver<'l>) {
         let mut buf = Vec::new();
         let mut output_stream = std::io::stdout().lock();
 

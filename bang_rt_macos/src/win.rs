@@ -1,7 +1,10 @@
-use std::marker::PhantomData;
+use std::{ffi::CString, marker::PhantomData};
 
-use bang_core::input::{Key, KeyState};
-use bang_rt_common::{draw::DrawReceiver, end::Ender, error::OrDie, input::InputGatherer};
+use bang_core::{
+    Config,
+    input::{Key, KeyState},
+};
+use bang_rt_common::{die, draw::DrawReceiver, end::Ender, error::OrDie, input::InputGatherer};
 
 use crate::{
     draw::DrawState,
@@ -59,7 +62,7 @@ struct WinState {
 
 impl WinState {
     fn init_delegate_cls() -> TypedCls<WinState, NSWindowDelegate::PPtr> {
-        let cls = TypedCls::make_class(c"NSWindowDelegateWithWinState").or_die("UNREACHABLE");
+        let cls = TypedCls::make_class(c"NSWindowDelegateWithWinState").or_(die!("UNREACHABLE"));
         NSWindowDelegate::PPtr::implement(&cls, win_should_close, win_did_resize);
         cls
     }
@@ -81,7 +84,7 @@ impl<'l> MyNSWindow<'l> {
     }
 
     fn init_as_subclass() -> TypedCls<MyNSWindow<'l>, NSWindow::IPtr> {
-        let cls = TypedCls::make_subclass(NSWindow::cls(), c"MyNSWindow").or_die("UNREACHABLE");
+        let cls = TypedCls::make_subclass(NSWindow::cls(), c"MyNSWindow").or_(die!("UNREACHABLE"));
         NSResponder::override_accepts_first_responder_as_true(cls.cls());
         NSResponder::override_key_down(cls.cls(), key_down);
         NSResponder::override_key_up(cls.cls(), key_up);
@@ -108,7 +111,12 @@ pub struct Window<'l> {
 }
 
 impl<'l> Window<'l> {
-    pub fn init(input_gatherer: InputGatherer, draw_receiver: DrawReceiver) -> Self {
+    pub fn init(
+        input_gatherer: InputGatherer,
+        draw_receiver: DrawReceiver<'l>,
+        config: &'l Config,
+        ender: &'l Ender,
+    ) -> Self {
         let win_dele_cls = WinState::init_delegate_cls();
         let view_dele_cls = DrawState::init_delegate_cls();
         let my_win = MyNSWindow::init_as_subclass();
@@ -118,19 +126,20 @@ impl<'l> Window<'l> {
         setup_main_menu(app);
 
         let size = CGSize {
-            width: 160.0,
-            height: 100.0,
+            width: config.resolution.0 as f64 / 2.0,
+            height: config.resolution.1 as f64 / 2.0,
         };
 
         let rect = CGRect {
-            origin: CGPoint { x: 200.0, y: 200.0 },
+            origin: CGPoint { x: 1.0, y: 1.0 },
             size,
         };
         let style_mask = NSWindowStyleMask::TITLED
             | NSWindowStyleMask::CLOSABLE
             | NSWindowStyleMask::MINIATURIZABLE
             | NSWindowStyleMask::RESIZABLE;
-        let title = NSString::IPtr::new(c"bang!");
+        let title = CString::new(config.name).or_(die!("Failed to create CString"));
+        let title = NSString::IPtr::new(&title);
 
         let win = my_win.alloc_upcasted(MyNSWindow::new(input_gatherer));
         let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
@@ -139,7 +148,7 @@ impl<'l> Window<'l> {
 
         let alloc = MTKView::alloc();
         let view = MTKView::IPtr::init(alloc, rect, device);
-        let dele = DrawState::new(device, view.color_pixel_fmt(), draw_receiver);
+        let dele = DrawState::new(device, view.color_pixel_fmt(), draw_receiver, config, ender);
         view.set_preferred_fps(120);
         view.set_delegate(view_dele_cls.alloc_init_upcasted(dele));
         win.set_delegate(win_dele_cls.alloc_init_upcasted(WinState { win }));
