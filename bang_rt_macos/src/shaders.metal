@@ -7,8 +7,8 @@ struct VertexIn {
 };
 
 struct VertexOut {
-    float4 color;
     float4 pos [[position]];
+    float2 uv [[center_no_perspective]];
 };
 
 struct Globals {
@@ -17,35 +17,39 @@ struct Globals {
     float2 reso;
 };
 
-struct DebugOut {
-    VertexOut value;
-};
-
 vertex VertexOut vertexShader(
     VertexIn in [[stage_in]],
     constant Globals &globals [[buffer(1)]],
     const device float2 *instancePositions [[buffer(2)]],
     unsigned int instanceID [[instance_id]],
-    unsigned int vertexID [[vertex_id]],
-    device DebugOut *debugOutputs [[buffer(3)]]
+    unsigned int vertexID [[vertex_id]]
 ) {
     float2 instancePos = instancePositions[instanceID];
     VertexOut out;
 
-    float phase = globals.frame % 100 / 100.0;
-
-    out.color = float4(1, phase, 0, 1);
-
     out.pos = float4(
-        instancePos.x / globals.reso.x * 2.0 + in.pos.x/5.0,
-        instancePos.y / globals.reso.y * 2.0 + in.pos.y/5.0,
+        (instancePos.x + in.pos.x) / globals.reso.x * 2.0,
+        (instancePos.y + in.pos.y) / globals.reso.y * 2.0,
         0, 1);
+
+    float2 uvs[4] = {
+        float2(0, 0), // top-left
+        float2(0, 1), // bottom-left
+        float2(1, 0), // top-right
+        float2(1, 1)  // bottom-right
+    };
+    out.uv = uvs[vertexID];
 
     return out;
 }
 
 
-fragment float4 fragmentShader(VertexOut interpolated [[stage_in]])
-{
-    return interpolated.color;
+fragment float4 fragmentShader(
+    VertexOut in [[stage_in]],
+    texture2d<ushort, access::read> tex [[texture(0)]],
+    const device float4 *pal [[buffer(1)]]
+) {
+    float2 tex_size = float2(tex.get_width(), tex.get_height());
+    ushort idx = tex.read(uint2(in.uv * tex_size)).r;
+    return pal[idx];
 }

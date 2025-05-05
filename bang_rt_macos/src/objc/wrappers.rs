@@ -6,6 +6,8 @@ use std::{
     ops::{Add, Sub},
 };
 
+use bang_core::draw::AsBytes;
+
 use crate::objc::crimes::objc_prop_sel_init;
 
 use super::{
@@ -62,6 +64,7 @@ objc_class!(MTLVertexAttributeDescriptor);
 objc_class!(MTLVertexAttributeDescriptorArray);
 objc_class!(MTLVertexBufferLayoutDescriptor);
 objc_class!(MTLVertexBufferLayoutDescriptorArray);
+objc_class!(MTLTextureDescriptor);
 
 objc_protocol!(MTLDevice);
 objc_protocol!(MTLCommandQueue);
@@ -73,6 +76,7 @@ objc_protocol!(MTLLibrary);
 objc_protocol!(MTLFunction);
 objc_protocol!(MTKViewDelegate);
 objc_protocol!(NSWindowDelegate);
+objc_protocol!(MTLTexture);
 
 pub mod sel {
     use crate::objc::crimes::{objc_prop_sel, objc_sel};
@@ -130,6 +134,7 @@ pub mod sel {
     objc_sel!(newRenderPipelineStateWithDescriptor_error_);
     objc_sel!(newLibraryWithURL_error_);
     objc_sel!(newLibraryWithSource_options_error_);
+    objc_sel!(newTextureWithDescriptor_);
 
     // MTLCommandQueue
     objc_sel!(commandBuffer);
@@ -146,6 +151,9 @@ pub mod sel {
     objc_sel!(setVertexBytes_length_atIndex_);
     objc_sel!(setVertexBuffer_offset_atIndex_);
     objc_sel!(drawPrimitives_vertexStart_vertexCount_instanceCount_);
+    objc_sel!(setFragmentTexture_atIndex_);
+    objc_sel!(setFragmentBuffer_offset_atIndex_);
+    objc_sel!(setFragmentBytes_length_atIndex_);
 
     //MTLBuffer
     objc_sel!(contents);
@@ -209,6 +217,12 @@ pub mod sel {
 
     // MTLVertexBufferLayoutDescriptor
     objc_prop_sel!(stride);
+
+    // MTLTextureDescriptor
+    objc_sel!(texture2DDescriptorWithPixelFormat_width_height_mipmapped_);
+
+    // MTLTexture
+    objc_sel!(replaceRegion_mipmapLevel_withBytes_bytesPerRow_);
 }
 
 pub fn init_objc() {
@@ -234,6 +248,7 @@ pub fn init_objc() {
     MTLVertexAttributeDescriptorArray::init();
     MTLVertexBufferLayoutDescriptor::init();
     MTLVertexBufferLayoutDescriptorArray::init();
+    MTLTextureDescriptor::init();
 
     // NSError
     objc_prop_sel_init!(code);
@@ -286,6 +301,7 @@ pub fn init_objc() {
     sel::newRenderPipelineStateWithDescriptor_error_.init();
     sel::newLibraryWithURL_error_.init();
     sel::newLibraryWithSource_options_error_.init();
+    sel::newTextureWithDescriptor_.init();
 
     // MTLCommandQueue
     sel::commandBuffer.init();
@@ -302,6 +318,9 @@ pub fn init_objc() {
     sel::setVertexBytes_length_atIndex_.init();
     sel::setVertexBuffer_offset_atIndex_.init();
     sel::drawPrimitives_vertexStart_vertexCount_instanceCount_.init();
+    sel::setFragmentBytes_length_atIndex_.init();
+    sel::setFragmentBuffer_offset_atIndex_.init();
+    sel::setFragmentTexture_atIndex_.init();
 
     // MTLBuffer
     sel::contents.init();
@@ -365,6 +384,12 @@ pub fn init_objc() {
 
     // MTLVertexBufferLayoutDescriptor
     objc_prop_sel_init!(stride);
+
+    // MTLTextureDescriptor
+    sel::texture2DDescriptorWithPixelFormat_width_height_mipmapped_.init();
+
+    // MTLTexture
+    sel::replaceRegion_mipmapLevel_withBytes_bytesPerRow_.init();
 }
 
 impl NSError::IPtr {
@@ -557,9 +582,13 @@ pub enum MTLPrimitiveType {
     TriangleStrip = 4,
 }
 
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct MTLPixelFormat(NSUInteger);
+#[derive(Debug, Clone, Copy)]
+#[repr(u64)]
+pub enum MTLPixelFormat {
+    R8Uint = 13,
+    BGRA8Unorm = 80,
+    RGBA32Float = 125,
+}
 
 impl MTKView::IPtr {
     pub fn override_draw_rect(f: extern "C" fn(MTKView::IPtr, Sel, CGRect)) -> bool {
@@ -630,14 +659,29 @@ impl MTLDevice::PPtr {
         unsafe { msg0::<Option<MTLCommandQueue::PPtr>>(self.0, sel::newCommandQueue.sel()) }
     }
 
-    pub fn new_buf<T>(&self, buf: &[T], options: MTLResourceOptions) -> Option<MTLBuffer::PPtr> {
+    pub fn new_buf<T: AsBytes + ?Sized>(
+        &self,
+        buf: &T,
+        options: MTLResourceOptions,
+    ) -> Option<MTLBuffer::PPtr> {
+        let bytes = buf.as_bytes();
         unsafe {
             msg3::<Option<MTLBuffer::PPtr>, *const u8, NSUInteger, MTLResourceOptions>(
                 self.0,
                 sel::newBufferWithBytes_length_options_.sel(),
-                buf.as_ptr() as *const u8,
-                size_of_val(buf) as NSUInteger,
+                bytes.as_ptr(),
+                size_of_val(bytes) as NSUInteger,
                 options,
+            )
+        }
+    }
+
+    pub fn new_tex(&self, desc: MTLTextureDescriptor::IPtr) -> Option<MTLTexture::PPtr> {
+        unsafe {
+            msg1::<Option<MTLTexture::PPtr>, MTLTextureDescriptor::IPtr>(
+                self.0,
+                sel::newTextureWithDescriptor_.sel(),
+                desc,
             )
         }
     }
@@ -755,13 +799,14 @@ impl MTLRenderCommandEncoder::PPtr {
         }
     }
 
-    pub fn set_vtex_bytes(&self, bytes: &[u8], index: usize) {
+    pub fn set_vtex_bytes<T: AsBytes + ?Sized>(&self, bytes: &T, index: usize) {
+        let bytes = bytes.as_bytes();
         unsafe {
             msg3::<(), *const u8, NSUInteger, NSUInteger>(
                 self.0,
                 sel::setVertexBytes_length_atIndex_.sel(),
                 bytes.as_ptr(),
-                bytes.len() as NSUInteger,
+                size_of_val(bytes) as NSUInteger,
                 index as NSUInteger,
             )
         }
@@ -779,6 +824,40 @@ impl MTLRenderCommandEncoder::PPtr {
         }
     }
 
+    pub fn set_frag_tex(&self, tex: MTLTexture::PPtr, index: usize) {
+        unsafe {
+            msg2::<(), MTLTexture::PPtr, NSUInteger>(
+                self.0,
+                sel::setFragmentTexture_atIndex_.sel(),
+                tex,
+                index as NSUInteger,
+            )
+        }
+    }
+
+    pub fn set_frag_buf(&self, buf: MTLBuffer::PPtr, offset: usize, index: usize) {
+        unsafe {
+            msg3::<(), MTLBuffer::PPtr, NSUInteger, NSUInteger>(
+                self.0,
+                sel::setFragmentBuffer_offset_atIndex_.sel(),
+                buf,
+                offset as NSUInteger,
+                index as NSUInteger,
+            )
+        }
+    }
+    pub fn set_frag_bytes<T: AsBytes + ?Sized>(&self, bytes: &T, index: usize) {
+        let bytes = bytes.as_bytes();
+        unsafe {
+            msg3::<(), *const u8, NSUInteger, NSUInteger>(
+                self.0,
+                sel::setFragmentBytes_length_atIndex_.sel(),
+                bytes.as_ptr(),
+                size_of_val(bytes) as NSUInteger,
+                index as NSUInteger,
+            )
+        }
+    }
     pub fn draw_primitives(
         &self,
         primitive_type: MTLPrimitiveType,
@@ -1156,5 +1235,59 @@ impl MTLBuffer::PPtr {
         let len = self.len();
         let ptr = unsafe { msg0::<*mut c_void>(self.obj(), sel::contents.sel()) };
         unsafe { std::slice::from_raw_parts(ptr as *const u8, len) }
+    }
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct MTLOrigin {
+    pub x: NSUInteger,
+    pub y: NSUInteger,
+    pub z: NSUInteger,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct MTLSize {
+    pub width: NSUInteger,
+    pub height: NSUInteger,
+    pub depth: NSUInteger,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct MTLRegion {
+    pub origin: MTLOrigin,
+    pub size: MTLSize,
+}
+
+impl MTLTextureDescriptor::IPtr {
+    pub fn new_2d(pixel_fmt: MTLPixelFormat, width: usize, height: usize) -> Self {
+        unsafe {
+            msg4::<MTLTextureDescriptor::IPtr, MTLPixelFormat, NSUInteger, NSUInteger, Bool>(
+                MTLTextureDescriptor::CLS.obj(),
+                sel::texture2DDescriptorWithPixelFormat_width_height_mipmapped_.sel(),
+                pixel_fmt,
+                width as NSUInteger,
+                height as NSUInteger,
+                false,
+            )
+        }
+    }
+}
+
+impl MTLTexture::PPtr {
+    pub fn replace<T: AsBytes + ?Sized>(&self, region: MTLRegion, bytes: &T, per_row: usize) {
+        let bytes = bytes.as_bytes();
+        unsafe {
+            msg4::<(), MTLRegion, NSUInteger, *const u8, NSUInteger>(
+                self.obj(),
+                sel::replaceRegion_mipmapLevel_withBytes_bytesPerRow_.sel(),
+                region,
+                0,
+                bytes.as_ptr(),
+                per_row as NSUInteger,
+            )
+        }
     }
 }

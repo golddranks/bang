@@ -1,6 +1,27 @@
-use std::slice;
+use std::slice::from_raw_parts;
 
 use crate::alloc::Alloc;
+
+/// # Safety
+/// This trait is safe to implement for types that don't have internal mutability (UnsafeCell)
+/// within their memory layout, and don't contain any padding bytes. The types implementing this trait
+/// should also preferably have a layout defined with repr(C) to ensure stability across rustc versions.
+pub unsafe trait AsBytes {
+    fn as_byte_ptr(&self) -> *const u8 {
+        self as *const Self as *const u8
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        unsafe { from_raw_parts(self.as_byte_ptr(), size_of_val(self)) }
+    }
+}
+
+unsafe impl<T> AsBytes for [T] where T: AsBytes {}
+unsafe impl<T, const N: usize> AsBytes for [T; N] where T: AsBytes {}
+
+unsafe impl AsBytes for u8 {}
+unsafe impl AsBytes for f32 {}
+unsafe impl AsBytes for ScreenPos {}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -20,12 +41,6 @@ pub enum Cmd<'f> {
         texture: TextureID,
         pos: &'f [ScreenPos],
     },
-}
-
-impl Cmd<'_> {
-    pub fn as_bytes(pos: &[ScreenPos]) -> &[u8] {
-        unsafe { slice::from_raw_parts(pos.as_ptr() as *const u8, size_of_val(pos)) }
-    }
 }
 
 #[derive(Debug)]
@@ -64,7 +79,7 @@ impl<'f> DrawFrame<'f> {
 mod tests {
     use crate::{
         alloc::Alloc,
-        draw::{Cmd, DrawFrame},
+        draw::{AsBytes, Cmd, DrawFrame},
     };
 
     use super::ScreenPos;
@@ -99,6 +114,6 @@ mod tests {
         let x = 1.0_f32.to_le_bytes();
         let y = 2.0_f32.to_le_bytes();
         let xy = [x, y].concat();
-        assert_eq!(Cmd::as_bytes(&[ScreenPos { x: 1.0, y: 2.0 }]), xy);
+        assert_eq!([ScreenPos { x: 1.0, y: 2.0 }].as_bytes(), xy);
     }
 }

@@ -1,15 +1,18 @@
 use std::ffi::CString;
 
-use bang_core::{Config, draw::Cmd};
+use bang_core::{
+    Config,
+    draw::{AsBytes, Cmd},
+};
 use bang_rt_common::{die, draw::DrawReceiver, end::Ender, error::OrDie};
 
 use crate::objc::{
     NSString, NSUInteger, Sel, TypedCls, TypedObj,
     wrappers::{
         CGSize, MTKView, MTKViewDelegate, MTLBuffer, MTLClearColor, MTLCommandQueue,
-        MTLCompileOptions, MTLDevice, MTLPixelFormat, MTLPrimitiveType,
-        MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions,
-        MTLVertexDescriptor, MTLVertexFormat, NSUrl,
+        MTLCompileOptions, MTLDevice, MTLOrigin, MTLPixelFormat, MTLPrimitiveType, MTLRegion,
+        MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSize,
+        MTLTexture, MTLTextureDescriptor, MTLVertexDescriptor, MTLVertexFormat, NSUrl,
     },
 };
 
@@ -18,6 +21,8 @@ pub struct DrawState<'l> {
     draw_receiver: DrawReceiver<'l>,
     cmd_queue: MTLCommandQueue::PPtr,
     quad_vtex_buf: MTLBuffer::PPtr,
+    quad_tex: MTLTexture::PPtr,
+    quad_pal_buf: MTLBuffer::PPtr,
     dbg_buf: MTLBuffer::PPtr,
     rend_pl_state: MTLRenderPipelineState::PPtr,
     frame: usize,
@@ -33,11 +38,7 @@ pub struct Globals {
     pub reso: [f32; 2],
 }
 
-impl Globals {
-    pub fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self as *const _ as *const u8, size_of::<Self>()) }
-    }
-}
+unsafe impl AsBytes for Globals {}
 
 extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr) {
     let state = dele.get_inner();
@@ -69,11 +70,13 @@ extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr
     rencoder.set_rend_pl_state(state.rend_pl_state);
     for cmd in frame.cmds {
         match cmd {
-            Cmd::DrawSQuads { pos, .. } => {
+            &Cmd::DrawSQuads { pos, .. } => {
                 rencoder.set_vtex_buf(state.quad_vtex_buf, 0, 0);
-                rencoder.set_vtex_bytes(globals.as_bytes(), 1);
-                rencoder.set_vtex_bytes(Cmd::as_bytes(pos), 2);
+                rencoder.set_vtex_bytes(&globals, 1);
+                rencoder.set_vtex_bytes(pos, 2);
                 rencoder.set_vtex_buf(state.dbg_buf, 0, 3);
+                rencoder.set_frag_tex(state.quad_tex, 0);
+                rencoder.set_frag_buf(state.quad_pal_buf, 0, 1);
                 rencoder.draw_primitives(MTLPrimitiveType::TriangleStrip, 0, 4, pos.len());
             }
         }
@@ -115,14 +118,15 @@ impl<'l> DrawState<'l> {
             .new_cmd_queue()
             .or_(die!("new_cmd_queue: Failed to create command queue"));
 
-        let vtex: [Vertex; 4] = [
-            Vertex::new([-1.0, 1.0]),
-            Vertex::new([-1.0, -1.0]),
-            Vertex::new([1.0, 1.0]),
-            Vertex::new([1.0, -1.0]),
+        let vtex = [
+            Vertex::new([-4.0, 4.0]),
+            Vertex::new([-4.0, -4.0]),
+            Vertex::new([4.0, 4.0]),
+            Vertex::new([4.0, -4.0]),
         ];
+
         let quad_vtex_buf = device
-            .new_buf(&vtex, MTLResourceOptions::DEFAULT)
+            .new_buf(vtex.as_slice(), MTLResourceOptions::DEFAULT)
             .or_(die!("quad_vtex_buf: Failed to create vertex buffer"));
 
         let dbg = vec![
@@ -133,7 +137,7 @@ impl<'l> DrawState<'l> {
             1024
         ];
         let dbg_buf = device
-            .new_buf(&dbg, MTLResourceOptions::DEFAULT)
+            .new_buf(dbg.as_slice(), MTLResourceOptions::DEFAULT)
             .or_(die!("dbg_buf: Failed to create vertex buffer"));
 
         let pl_desc = MTLRenderPipelineDescriptor::IPtr::new();
@@ -173,6 +177,50 @@ impl<'l> DrawState<'l> {
         layout_0.set_stride(size_of::<Vertex>() as NSUInteger);
         pl_desc.set_vtex_desc(vtex_desc);
 
+        let tex_desc = MTLTextureDescriptor::IPtr::new_2d(MTLPixelFormat::R8Uint, 8, 8);
+        let quad_tex = device
+            .new_tex(tex_desc)
+            .or_(die!("quad_tex: Failed to create texture"));
+
+        let region = MTLRegion {
+            origin: MTLOrigin { x: 0, y: 0, z: 0 },
+            size: MTLSize {
+                width: 8,
+                height: 8,
+                depth: 1,
+            },
+        };
+
+        let r: u8 = 0;
+        let g = 1;
+        let b = 2;
+
+        quad_tex.replace(
+            region,
+            [
+                [r, g, b, r, g, b, r, g],
+                [g, b, r, g, b, r, g, b],
+                [b, r, g, b, r, g, b, r],
+                [r, g, b, r, g, b, r, g],
+                [g, b, r, g, b, r, g, b],
+                [b, r, g, b, r, g, b, r],
+                [r, g, b, r, g, b, r, g],
+                [g, b, r, g, b, r, g, b],
+            ]
+            .as_slice(),
+            8,
+        );
+
+        let pal = [
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+        ];
+
+        let quad_pal_buf = device
+            .new_buf(pal.as_slice(), MTLResourceOptions::DEFAULT)
+            .or_(die!("quad_pal_buf: Failed to create buffer"));
+
         let rend_pl_state = device.new_rend_pl_state(pl_desc).or_(die!(
             "new_rend_pl_state: Failed to create render pipeline state"
         ));
@@ -181,6 +229,8 @@ impl<'l> DrawState<'l> {
             draw_receiver,
             cmd_queue,
             quad_vtex_buf,
+            quad_tex,
+            quad_pal_buf,
             dbg_buf,
             rend_pl_state,
             frame: 0,
@@ -208,3 +258,6 @@ impl Vertex {
         Vertex { pos }
     }
 }
+
+unsafe impl AsBytes for Vertex {}
+unsafe impl AsBytes for VertexOut {}
