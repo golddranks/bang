@@ -13,9 +13,9 @@ use crate::objc::crimes::objc_prop_sel_init;
 use super::{
     TypedPtr,
     crimes::{
-        AllocObj, Bool, CGFloat, CPtr, NSInteger, NSString, NSUInteger, OPtr, Protocol, Ptr, Sel,
-        TypedCls, TypedObj, derive_BitOr, init_objc_core, msg0, msg1, msg2, msg3, msg4, objc_class,
-        objc_prop_impl, objc_protocol, sel::init,
+        AllocObj, Bool, CGFloat, CPtr, InstancePtr, NSInteger, NSString, NSUInteger, OPtr,
+        Protocol, Ptr, Sel, TypedCls, TypedObj, derive_BitOr, init_objc_core, msg0, msg1, msg2,
+        msg3, msg4, objc_class, objc_prop_impl, objc_protocol, sel::init,
     },
 };
 
@@ -172,6 +172,12 @@ pub mod sel {
 
     // MTLRenderPipelineColorAttachmentDescriptor
     objc_prop_sel!(pixelFormat);
+    objc_sel!(isBlendingEnabled);
+    objc_sel!(setBlendingEnabled_);
+    objc_prop_sel!(sourceRGBBlendFactor);
+    objc_prop_sel!(sourceAlphaBlendFactor);
+    objc_prop_sel!(destinationRGBBlendFactor);
+    objc_prop_sel!(destinationAlphaBlendFactor);
 
     // NSWindowDelegate
     objc_sel!(windowWillResize_toSize_);
@@ -220,9 +226,11 @@ pub mod sel {
 
     // MTLTextureDescriptor
     objc_sel!(texture2DDescriptorWithPixelFormat_width_height_mipmapped_);
+    objc_prop_sel!(width);
 
     // MTLTexture
     objc_sel!(replaceRegion_mipmapLevel_withBytes_bytesPerRow_);
+    objc_prop_sel!(textureType);
 }
 
 pub fn init_objc() {
@@ -339,6 +347,12 @@ pub fn init_objc() {
 
     // MTLRenderPipelineColorAttachmentDescriptor
     objc_prop_sel_init!(pixelFormat);
+    sel::isBlendingEnabled.init();
+    sel::setBlendingEnabled_.init();
+    objc_prop_sel_init!(sourceRGBBlendFactor);
+    objc_prop_sel_init!(sourceAlphaBlendFactor);
+    objc_prop_sel_init!(destinationRGBBlendFactor);
+    objc_prop_sel_init!(destinationAlphaBlendFactor);
 
     // NSWindowDelegate
     sel::windowWillResize_toSize_.init();
@@ -387,9 +401,11 @@ pub fn init_objc() {
 
     // MTLTextureDescriptor
     sel::texture2DDescriptorWithPixelFormat_width_height_mipmapped_.init();
+    objc_prop_sel_init!(width);
 
     // MTLTexture
     sel::replaceRegion_mipmapLevel_withBytes_bytesPerRow_.init();
+    objc_prop_sel_init!(textureType);
 }
 
 impl NSError::IPtr {
@@ -586,8 +602,7 @@ pub enum MTLPrimitiveType {
 #[repr(u64)]
 pub enum MTLPixelFormat {
     R8Uint = 13,
-    BGRA8Unorm = 80,
-    RGBA32Float = 125,
+    RGBA16Unorm = 110,
 }
 
 impl MTKView::IPtr {
@@ -955,6 +970,41 @@ impl MTLRenderPipelineColorAttachmentDescriptorArray::IPtr {
 impl MTLRenderPipelineColorAttachmentDescriptor::IPtr {
     objc_prop_impl!(clearColor, MTLClearColor, clear_color, set_clear_color);
     objc_prop_impl!(pixelFormat, MTLPixelFormat, pixel_fmt, set_pixel_fmt);
+
+    pub fn blend_enabled(&self) -> bool {
+        unsafe { msg0::<Bool>(self.0, sel::isBlendingEnabled.sel()) }
+    }
+
+    pub fn set_blend_enabled(&self, enabled: bool) {
+        unsafe {
+            msg1::<(), Bool>(self.0, sel::setBlendingEnabled_.sel(), enabled);
+        }
+    }
+
+    objc_prop_impl!(
+        destinationAlphaBlendFactor,
+        MTLBlendFactor,
+        dest_alpha_blend_factor,
+        set_dest_alpha_blend_factor
+    );
+    objc_prop_impl!(
+        destinationRGBBlendFactor,
+        MTLBlendFactor,
+        dest_rgb_blend_factor,
+        set_dest_rgb_blend_factor
+    );
+    objc_prop_impl!(
+        sourceAlphaBlendFactor,
+        MTLBlendFactor,
+        source_alpha_blend_factor,
+        set_source_alpha_blend_factor
+    );
+    objc_prop_impl!(
+        sourceRGBBlendFactor,
+        MTLBlendFactor,
+        source_rgb_blend_factor,
+        set_source_rgb_blend_factor
+    );
 }
 
 impl MTLRenderPassDescriptor::IPtr {
@@ -1262,10 +1312,14 @@ pub struct MTLRegion {
 }
 
 impl MTLTextureDescriptor::IPtr {
+    pub fn new() -> Self {
+        Self::alloc_init()
+    }
+
     pub fn new_2d(pixel_fmt: MTLPixelFormat, width: usize, height: usize) -> Self {
         unsafe {
             msg4::<MTLTextureDescriptor::IPtr, MTLPixelFormat, NSUInteger, NSUInteger, Bool>(
-                MTLTextureDescriptor::CLS.obj(),
+                Self::cls().obj(),
                 sel::texture2DDescriptorWithPixelFormat_width_height_mipmapped_.sel(),
                 pixel_fmt,
                 width as NSUInteger,
@@ -1274,6 +1328,10 @@ impl MTLTextureDescriptor::IPtr {
             )
         }
     }
+
+    objc_prop_impl!(textureType, MTLTextureType, texture_type, set_texture_type);
+    objc_prop_impl!(pixelFormat, MTLPixelFormat, pixel_format, set_pixel_format);
+    objc_prop_impl!(width, NSUInteger, width, set_width);
 }
 
 impl MTLTexture::PPtr {
@@ -1290,4 +1348,28 @@ impl MTLTexture::PPtr {
             )
         }
     }
+
+    objc_prop_impl!(textureType, MTLTextureType, texture_type, set_texture_type);
+}
+
+#[repr(i64)]
+#[derive(Debug)]
+pub enum MTLTextureUsage {
+    ShaderRead = 1,
+}
+
+#[derive(Debug)]
+#[repr(u64)]
+pub enum MTLTextureType {
+    T1D = 0,
+    T2D = 2,
+}
+
+#[derive(Debug)]
+#[repr(u64)]
+pub enum MTLBlendFactor {
+    Zero = 0,
+    One = 1,
+    SourceAlpha = 4,
+    OneMinusSourceAlpha = 5,
 }

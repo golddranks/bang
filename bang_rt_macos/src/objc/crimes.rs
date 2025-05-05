@@ -139,6 +139,10 @@ impl<T> AllocObj<T> {
     pub(super) fn obj(&self) -> OPtr {
         self.0
     }
+
+    fn init_iptr(self) -> T {
+        unsafe { msg0::<T>(self.0, sel::init.sel()) }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -318,13 +322,7 @@ impl StaticClsPtr {
     }
 
     pub fn init(&self) {
-        let Some(cls) = class(self.0.name) else {
-            panic!("CALLER BUG: unknown class name: {:?}", self.0.name);
-        };
-        self.0.init(cls.obj());
-    }
-
-    pub fn init_with(&self, cls: CPtr) {
+        let cls = class(self.0.name).or_(die!("CALLER BUG: unknown class name: {:?}", self.0.name));
         self.0.init(cls.obj());
     }
 }
@@ -523,6 +521,10 @@ pub trait InstancePtr: TypedPtr {
     fn alloc() -> AllocObj<Self> {
         unsafe { Self::cls().alloc::<Self>() }
     }
+    fn alloc_init() -> Self {
+        let alloc_obj = Self::alloc();
+        unsafe { msg0::<Self>(alloc_obj.obj(), sel::init.sel()) }
+    }
 }
 
 /// # Safety
@@ -602,6 +604,7 @@ macro_rules! objc_class {
                 unsafe fn new(obj: OPtr) -> Self {
                     Self(obj)
                 }
+
                 fn obj(&self) -> OPtr {
                     self.0
                 }
@@ -667,6 +670,7 @@ macro_rules! derive_BitOr {
     };
 }
 
+use bang_rt_common::{die, error::OrDie};
 pub(crate) use derive_BitOr;
 pub(crate) use objc_class;
 pub(crate) use objc_prop_impl;

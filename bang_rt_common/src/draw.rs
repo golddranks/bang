@@ -2,9 +2,10 @@ use std::{
     ops::Not,
     ptr::null_mut,
     sync::atomic::{AtomicPtr, Ordering},
+    u16,
 };
 
-use bang_core::draw::{DRAW_FRAME_DUMMY, DrawFrame};
+use bang_core::draw::{AsBytes, DRAW_FRAME_DUMMY, DrawFrame};
 
 use crate::alloc::AllocRetirer;
 
@@ -74,6 +75,85 @@ impl<'l> DrawReceiver<'l> {
 
     pub fn has_fresh(&self) -> bool {
         self.shared.fresh.load(Ordering::Acquire).is_null().not()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C, align(8))]
+pub struct Color {
+    pub r: u16,
+    pub g: u16,
+    pub b: u16,
+    pub a: u16,
+}
+
+unsafe impl AsBytes for Color {}
+
+impl Color {
+    pub const fn from_f32(r: f32, g: f32, b: f32, a: f32) -> Self {
+        let max = u16::MAX as f32;
+        assert!(r >= 0.0 && r <= 1.0);
+        assert!(g >= 0.0 && g <= 1.0);
+        assert!(b >= 0.0 && b <= 1.0);
+        assert!(a >= 0.0 && a <= 1.0);
+        Self {
+            r: (r * max) as u16,
+            g: (g * max) as u16,
+            b: (b * max) as u16,
+            a: (a * max) as u16,
+        }
+    }
+}
+
+pub struct PalTex {
+    width: u32,
+    height: u32,
+    palette: Vec<Color>,
+    data: Vec<u8>,
+}
+
+impl PalTex {
+    pub fn from_bytes<const N: usize, const M: usize>(
+        palette: &[(u8, Color)],
+        bytes: &[[u8; N]; M],
+    ) -> Self {
+        let mut data = bytes.as_flattened().to_owned();
+        let mut pal_idx_lookup = [0_u8; 256];
+        let mut colors = Vec::with_capacity(palette.len());
+
+        // Prepare the palette and the lookup table
+        for (new_idx, (old_idx, color)) in palette.iter().enumerate() {
+            colors.push(*color);
+            pal_idx_lookup[*old_idx as usize] = new_idx as u8;
+        }
+
+        // Re-assign the palette indices to the data
+        for i in 0..data.len() {
+            data[i] = pal_idx_lookup[data[i] as usize];
+        }
+
+        Self {
+            height: bytes.len() as u32,
+            width: bytes[0].len() as u32,
+            palette: colors,
+            data,
+        }
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn palette(&self) -> &[Color] {
+        &self.palette
+    }
+
+    pub fn width(&self) -> usize {
+        self.width as usize
+    }
+
+    pub fn height(&self) -> usize {
+        self.height as usize
     }
 }
 

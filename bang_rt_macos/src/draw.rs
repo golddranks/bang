@@ -4,15 +4,21 @@ use bang_core::{
     Config,
     draw::{AsBytes, Cmd},
 };
-use bang_rt_common::{die, draw::DrawReceiver, end::Ender, error::OrDie};
+use bang_rt_common::{
+    die,
+    draw::{Color, DrawReceiver, PalTex},
+    end::Ender,
+    error::OrDie,
+};
 
 use crate::objc::{
     NSString, NSUInteger, Sel, TypedCls, TypedObj,
     wrappers::{
-        CGSize, MTKView, MTKViewDelegate, MTLBuffer, MTLClearColor, MTLCommandQueue,
-        MTLCompileOptions, MTLDevice, MTLOrigin, MTLPixelFormat, MTLPrimitiveType, MTLRegion,
-        MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSize,
-        MTLTexture, MTLTextureDescriptor, MTLVertexDescriptor, MTLVertexFormat, NSUrl,
+        CGSize, MTKView, MTKViewDelegate, MTLBlendFactor, MTLBuffer, MTLClearColor,
+        MTLCommandQueue, MTLCompileOptions, MTLDevice, MTLOrigin, MTLPixelFormat, MTLPrimitiveType,
+        MTLRegion, MTLRenderCommandEncoder, MTLRenderPipelineDescriptor, MTLRenderPipelineState,
+        MTLResourceOptions, MTLSize, MTLTexture, MTLTextureDescriptor, MTLTextureType,
+        MTLVertexDescriptor, MTLVertexFormat, NSUrl,
     },
 };
 
@@ -21,8 +27,7 @@ pub struct DrawState<'l> {
     draw_receiver: DrawReceiver<'l>,
     cmd_queue: MTLCommandQueue::PPtr,
     quad_vtex_buf: MTLBuffer::PPtr,
-    quad_tex: MTLTexture::PPtr,
-    quad_pal_buf: MTLBuffer::PPtr,
+    smile: BoundPalTex,
     dbg_buf: MTLBuffer::PPtr,
     rend_pl_state: MTLRenderPipelineState::PPtr,
     frame: usize,
@@ -75,8 +80,7 @@ extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr
                 rencoder.set_vtex_bytes(&globals, 1);
                 rencoder.set_vtex_bytes(pos, 2);
                 rencoder.set_vtex_buf(state.dbg_buf, 0, 3);
-                rencoder.set_frag_tex(state.quad_tex, 0);
-                rencoder.set_frag_buf(state.quad_pal_buf, 0, 1);
+                state.smile.bind_frag(&rencoder);
                 rencoder.draw_primitives(MTLPrimitiveType::TriangleStrip, 0, 4, pos.len());
             }
         }
@@ -108,7 +112,7 @@ impl<'l> DrawState<'l> {
     }
 
     pub fn new(
-        device: MTLDevice::PPtr,
+        mut device: MTLDevice::PPtr,
         pixel_fmt: MTLPixelFormat,
         draw_receiver: DrawReceiver<'l>,
         config: &'l Config,
@@ -136,6 +140,7 @@ impl<'l> DrawState<'l> {
             };
             1024
         ];
+
         let dbg_buf = device
             .new_buf(dbg.as_slice(), MTLResourceOptions::DEFAULT)
             .or_(die!("dbg_buf: Failed to create vertex buffer"));
@@ -166,7 +171,12 @@ impl<'l> DrawState<'l> {
         pl_desc.set_frag_fn(lib.new_fn(c"fragmentShader"));
         let attach = pl_desc.color_attach().at(0);
 
+        attach.set_blend_enabled(true);
         attach.set_pixel_fmt(pixel_fmt);
+        attach.set_source_rgb_blend_factor(MTLBlendFactor::SourceAlpha);
+        attach.set_source_alpha_blend_factor(MTLBlendFactor::SourceAlpha);
+        attach.set_dest_rgb_blend_factor(MTLBlendFactor::OneMinusSourceAlpha);
+        attach.set_dest_alpha_blend_factor(MTLBlendFactor::OneMinusSourceAlpha);
 
         let vtex_desc = MTLVertexDescriptor::IPtr::new();
         let attr_0 = vtex_desc.attributes().at(0);
@@ -177,49 +187,24 @@ impl<'l> DrawState<'l> {
         layout_0.set_stride(size_of::<Vertex>() as NSUInteger);
         pl_desc.set_vtex_desc(vtex_desc);
 
-        let tex_desc = MTLTextureDescriptor::IPtr::new_2d(MTLPixelFormat::R8Uint, 8, 8);
-        let quad_tex = device
-            .new_tex(tex_desc)
-            .or_(die!("quad_tex: Failed to create texture"));
+        let transp = Color::from_f32(0.0, 0.0, 0.0, 0.0);
+        let red = Color::from_f32(1.0, 0.0, 0.0, 1.0);
 
-        let region = MTLRegion {
-            origin: MTLOrigin { x: 0, y: 0, z: 0 },
-            size: MTLSize {
-                width: 8,
-                height: 8,
-                depth: 1,
-            },
-        };
-
-        let r: u8 = 0;
-        let g = 1;
-        let b = 2;
-
-        quad_tex.replace(
-            region,
-            [
-                [r, g, b, r, g, b, r, g],
-                [g, b, r, g, b, r, g, b],
-                [b, r, g, b, r, g, b, r],
-                [r, g, b, r, g, b, r, g],
-                [g, b, r, g, b, r, g, b],
-                [b, r, g, b, r, g, b, r],
-                [r, g, b, r, g, b, r, g],
-                [g, b, r, g, b, r, g, b],
-            ]
-            .as_slice(),
-            8,
+        let smile = PalTex::from_bytes(
+            &[(b'_', transp), (b'O', red)],
+            &[
+                *b"________",
+                *b"_O____O_",
+                *b"_O____O_",
+                *b"________",
+                *b"O______O",
+                *b"_O____O_",
+                *b"__OOOO__",
+                *b"________",
+            ],
         );
 
-        let pal = [
-            [1.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.0, 1.0],
-            [0.0, 0.0, 1.0, 1.0],
-        ];
-
-        let quad_pal_buf = device
-            .new_buf(pal.as_slice(), MTLResourceOptions::DEFAULT)
-            .or_(die!("quad_pal_buf: Failed to create buffer"));
+        let smile = BoundPalTex::new(&smile, &mut device);
 
         let rend_pl_state = device.new_rend_pl_state(pl_desc).or_(die!(
             "new_rend_pl_state: Failed to create render pipeline state"
@@ -229,8 +214,7 @@ impl<'l> DrawState<'l> {
             draw_receiver,
             cmd_queue,
             quad_vtex_buf,
-            quad_tex,
-            quad_pal_buf,
+            smile,
             dbg_buf,
             rend_pl_state,
             frame: 0,
@@ -261,3 +245,66 @@ impl Vertex {
 
 unsafe impl AsBytes for Vertex {}
 unsafe impl AsBytes for VertexOut {}
+
+#[derive(Debug)]
+struct BoundPalTex {
+    pal: MTLTexture::PPtr,
+    tex: MTLTexture::PPtr,
+}
+
+impl BoundPalTex {
+    fn new(paltex: &PalTex, device: &mut MTLDevice::PPtr) -> Self {
+        let tex_desc = MTLTextureDescriptor::IPtr::new_2d(
+            MTLPixelFormat::R8Uint,
+            paltex.width(),
+            paltex.height(),
+        );
+
+        let tex = device
+            .new_tex(tex_desc)
+            .or_(die!("tex: Failed to create texture"));
+
+        tex.replace(
+            MTLRegion {
+                origin: MTLOrigin { x: 0, y: 0, z: 0 },
+                size: MTLSize {
+                    width: paltex.width() as u64,
+                    height: paltex.height() as u64,
+                    depth: 1,
+                },
+            },
+            paltex.data(),
+            paltex.width() * size_of::<u8>(),
+        );
+
+        let pal_desc = MTLTextureDescriptor::IPtr::new();
+
+        pal_desc.set_pixel_format(MTLPixelFormat::RGBA16Unorm);
+        pal_desc.set_texture_type(MTLTextureType::T1D);
+        pal_desc.set_width(paltex.palette().len() as u64);
+
+        let pal = device
+            .new_tex(pal_desc)
+            .or_(die!("pal: Failed to create palette texture"));
+
+        pal.replace(
+            MTLRegion {
+                origin: MTLOrigin { x: 0, y: 0, z: 0 },
+                size: MTLSize {
+                    width: paltex.palette().len() as u64,
+                    height: 1,
+                    depth: 1,
+                },
+            },
+            paltex.palette(),
+            0,
+        );
+
+        Self { pal, tex }
+    }
+
+    fn bind_frag(&self, rencoder: &MTLRenderCommandEncoder::PPtr) {
+        rencoder.set_frag_tex(self.tex, 0);
+        rencoder.set_frag_tex(self.pal, 1);
+    }
+}

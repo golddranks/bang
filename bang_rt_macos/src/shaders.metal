@@ -44,12 +44,12 @@ vertex VertexOut vertexShader(
 }
 
 
-fragment float4 fragmentShader(
+fragment half4 fragmentShader(
     VertexOut in [[stage_in]],
     texture2d<ushort, access::read> tex [[texture(0)]],
-    const device float4 *pal [[buffer(1)]]
+    texture1d<half, access::read> pal [[texture(1)]]
 ) {
     float2 tex_size = float2(tex.get_width(), tex.get_height());
     ushort idx = tex.read(uint2(in.uv * tex_size)).r;
-    return pal[idx];
+    return pal.read(idx);
 }
