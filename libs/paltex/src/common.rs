@@ -5,7 +5,8 @@ use bang_core::draw::AsBytes;
 pub struct Header {
     pub width: u16,
     pub height: u16,
-    pub pal_len: u16,
+    pub pal_len: u8,
+    pub padding: u8,
 }
 
 unsafe impl AsBytes for Header {}

@@ -17,7 +17,8 @@ pub(crate) fn encode_headers(paltex: &PalTex, output: &mut Vec<u8>) {
     let header = Header {
         width: paltex.width as u16,
         height: paltex.height as u16,
-        pal_len: paltex.palette.len() as u16,
+        pal_len: paltex.palette.len() as u8,
+        padding: 0,
     };
     output.extend_from_slice(header.as_bytes());
     output.extend_from_slice(paltex.palette.as_bytes());

@@ -4,7 +4,7 @@
 
 - Fix allocations:
   - What about single allocatons with Drop?
-  - Life is hard without overlapping Vecs
+  - Life is hard without overlapping Vec lifetimes
   - Miri fails currently
 
 ## Short term

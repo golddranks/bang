@@ -7,6 +7,8 @@ pub(crate) fn decode_header(input: &[u8]) -> Header {
     let header_end = size_of::<Header>();
     header.as_bytes_mut().copy_from_slice(&input[..header_end]);
 
+    header.pal_len = u8::min(header.pal_len, 15);
+
     header
 }
 
@@ -67,6 +69,11 @@ pub(crate) fn decode_main(header: &Header, encoded_data: &[u8]) -> Vec<u8> {
         while cursor < data.len() && data[cursor] != u8::MAX {
             cursor += 1;
         }
+    }
+
+    data.truncate(cursor.next_multiple_of(header.width as usize));
+    for color_idx in &mut data[cursor..] {
+        *color_idx = 0;
     }
 
     data

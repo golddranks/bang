@@ -4,15 +4,17 @@ use std::{
     io::{Read, Write, stdin, stdout},
 };
 
+use bang_rt_common::{die, error::OrDie};
+
 const CSI: &str = "\x1b[";
 
 fn color_block(mut out: impl Write, ansi_color: u8) {
-    write!(out, "{CSI}{}m██", 30 + ansi_color).expect("Failed to write to stdout");
+    write!(out, "{CSI}{}m██", 30 + ansi_color % 8).expect("Failed to write to stdout");
 }
 
 fn main() {
     let input = if let Some(path) = args().nth(1) {
-        read(path).expect("Failed to read from file")
+        read(&path).or_(die!("Failed to read from file {:?}", path))
     } else {
         let mut input = Vec::new();
         stdin()
@@ -21,7 +23,6 @@ fn main() {
             .expect("Failed to read from stdin.");
         input
     };
-    dbg!(input.len());
     let paltex = paltex::decode(&input);
 
     let mut stdout = stdout().lock();
@@ -42,8 +43,8 @@ fn main() {
     let mut row = Vec::new();
     for chunk in paltex.data.chunks(paltex.width as usize) {
         row.clear();
-        for &col in chunk {
-            color_block(&mut row, col);
+        for &color_idx in chunk {
+            color_block(&mut row, color_idx);
         }
         row.push(b'\n');
         stdout.write_all(&row).expect("Failed to write to stdout");

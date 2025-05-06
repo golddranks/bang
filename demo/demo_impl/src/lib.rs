@@ -43,7 +43,7 @@ pub fn frame_logic<'f>(
 pub const CONFIG: Config = Config {
     name: "Demo",
     resolution: (320, 200),
-    logic_fps: 10,
+    logic_fps: 60,
     scale: 6,
 };
 

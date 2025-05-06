@@ -75,6 +75,7 @@ mod tests {
             width: 5,
             height: 5,
             pal_len: 15,
+            padding: 0,
         };
         let decoded = decode_main(&header, &output);
         assert_eq!(decoded, input);
