@@ -1,8 +1,8 @@
 [workspace]
 resolver = "3"
 members = [
-    "bang_rt_macos",
-    "bang_rt_tui",
+    "runtimes/bang_rt_macos",
+    "runtimes/bang_rt_tui",
     "bang_rt_common",
     "bang_core",
     "demo/demo_impl",
@@ -10,4 +10,7 @@ members = [
     "bang_rt_common/tests/test_normal_dylib",
     "bang_rt_common/tests/test_panic_dylib",
     "bang_rt_common/tests/test_symbol_missing_dylib",
+    "tools/png2paltex",
+    "tools/paltex2ascii",
+    "libs/paltex",
 ]

@@ -1,0 +1,9 @@
+[package]
+name = "paltex2ascii"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bang_rt_common = { path = "../../bang_rt_common" }
+bang_core = { path = "../../bang_core" }
+paltex = { path = "../../libs/paltex" }

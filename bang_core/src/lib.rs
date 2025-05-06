@@ -10,4 +10,5 @@ pub struct Config {
     pub name: &'static str,
     pub resolution: (u32, u32),
     pub logic_fps: u64,
+    pub scale: u8,
 }

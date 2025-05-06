@@ -2,7 +2,7 @@ use std::ffi::CString;
 
 use bang_core::{
     Config,
-    draw::{AsBytes, Cmd},
+    draw::{AsBytes, Cmd, ScreenPos},
 };
 use bang_rt_common::{
     die,
@@ -27,8 +27,7 @@ pub struct DrawState<'l> {
     draw_receiver: DrawReceiver<'l>,
     cmd_queue: MTLCommandQueue::PPtr,
     quad_vtex_buf: MTLBuffer::PPtr,
-    smile: BoundPalTex,
-    dbg_buf: MTLBuffer::PPtr,
+    bound_paltex: Vec<BoundPalTex>,
     rend_pl_state: MTLRenderPipelineState::PPtr,
     frame: usize,
     config: &'l Config,
@@ -39,7 +38,7 @@ pub struct DrawState<'l> {
 #[repr(C, align(8))]
 pub struct Globals {
     pub frame: u32,
-    pub _pad: u32,
+    pub quad_size: [u16; 2],
     pub reso: [f32; 2],
 }
 
@@ -52,12 +51,9 @@ extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr
     }
     let frame = state.draw_receiver.get_fresh();
 
-    let phase = state.frame % 100;
-    let color_phase = 0.01 * phase as f64;
-
-    let globals = Globals {
+    let mut globals = Globals {
         frame: state.frame as u32,
-        _pad: 0,
+        quad_size: [8, 8],
         reso: [
             state.config.resolution.0 as f32,
             state.config.resolution.1 as f32,
@@ -68,23 +64,21 @@ extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr
     pass_desc
         .color_attach()
         .at(0)
-        .set_clear_color(MTLClearColor::new(color_phase, 0.0, 0.0, 1.0));
+        .set_clear_color(MTLClearColor::new(0.0, 0.0, 0.0, 1.0));
     let cmd_buf = state.cmd_queue.cmd_buf().or_(die!("cmd_buf"));
 
     let rencoder = cmd_buf.rencoder_with_desc(pass_desc).or_(die!("rencoder"));
     rencoder.set_rend_pl_state(state.rend_pl_state);
     for cmd in frame.cmds {
         match cmd {
-            &Cmd::DrawSQuads { pos, .. } => {
-                rencoder.set_vtex_buf(state.quad_vtex_buf, 0, 0);
-                rencoder.set_vtex_bytes(&globals, 1);
-                rencoder.set_vtex_bytes(pos, 2);
-                rencoder.set_vtex_buf(state.dbg_buf, 0, 3);
-                state.smile.bind_frag(&rencoder);
-                rencoder.draw_primitives(MTLPrimitiveType::TriangleStrip, 0, 4, pos.len());
+            &Cmd::DrawSQuads { pos, texture } => {
+                let bound_paltex = &state.bound_paltex[texture.0 as usize];
+                globals.quad_size = bound_paltex.quad_size;
+                draw_squad(&rencoder, state.quad_vtex_buf, &globals, pos, bound_paltex);
             }
         }
     }
+
     rencoder.end();
 
     let drawable = view.current_drawable().or_(die!("drawable"));
@@ -123,27 +117,15 @@ impl<'l> DrawState<'l> {
             .or_(die!("new_cmd_queue: Failed to create command queue"));
 
         let vtex = [
-            Vertex::new([-4.0, 4.0]),
-            Vertex::new([-4.0, -4.0]),
-            Vertex::new([4.0, 4.0]),
-            Vertex::new([4.0, -4.0]),
+            Vertex::new([0.0, 1.0]),
+            Vertex::new([0.0, 0.0]),
+            Vertex::new([1.0, 1.0]),
+            Vertex::new([1.0, 0.0]),
         ];
 
         let quad_vtex_buf = device
             .new_buf(vtex.as_slice(), MTLResourceOptions::DEFAULT)
             .or_(die!("quad_vtex_buf: Failed to create vertex buffer"));
-
-        let dbg = vec![
-            VertexOut {
-                color: [0.0, 0.0, 0.0, 0.0],
-                pos: [0.0, 0.0, 0.0, 0.0]
-            };
-            1024
-        ];
-
-        let dbg_buf = device
-            .new_buf(dbg.as_slice(), MTLResourceOptions::DEFAULT)
-            .or_(die!("dbg_buf: Failed to create vertex buffer"));
 
         let pl_desc = MTLRenderPipelineDescriptor::IPtr::new();
 
@@ -187,24 +169,34 @@ impl<'l> DrawState<'l> {
         layout_0.set_stride(size_of::<Vertex>() as NSUInteger);
         pl_desc.set_vtex_desc(vtex_desc);
 
-        let transp = Color::from_f32(0.0, 0.0, 0.0, 0.0);
-        let red = Color::from_f32(1.0, 0.0, 0.0, 1.0);
+        let transp = Color::from_rgba_f32([0.0, 0.0, 0.0, 0.0]);
+        let red = Color::from_rgba_f32([1.0, 0.0, 0.0, 1.0]);
+        let halfred = Color::from_rgba_f32([1.0, 0.0, 0.0, 0.5]);
+        let blue = Color::from_rgba_f32([0.0, 0.0, 1.0, 1.0]);
 
-        let smile = PalTex::from_bytes(
-            &[(b'_', transp), (b'O', red)],
+        let smile = PalTex::from_ascii_map(
+            &[(b' ', transp), (b'O', red), (b'I', halfred), (b'_', blue)],
             &[
-                *b"________",
+                *b"  ____  ",
+                *b" ______ ",
                 *b"_O____O_",
-                *b"_O____O_",
-                *b"________",
+                *b"___II___",
                 *b"O______O",
                 *b"_O____O_",
-                *b"__OOOO__",
-                *b"________",
+                *b" _OOOO_ ",
+                *b"  ____  ",
             ],
         );
-
         let smile = BoundPalTex::new(&smile, &mut device);
+
+        let bubu = PalTex::from_encoded(&std::fs::read("assets/paltex/bubu.paltex").unwrap());
+        let bubu = BoundPalTex::new(&bubu, &mut device);
+
+        let toge = PalTex::from_encoded(&std::fs::read("assets/paltex/toge.paltex").unwrap());
+        let toge = BoundPalTex::new(&toge, &mut device);
+
+        let lima = PalTex::from_encoded(&std::fs::read("assets/paltex/lima.paltex").unwrap());
+        let lima = BoundPalTex::new(&lima, &mut device);
 
         let rend_pl_state = device.new_rend_pl_state(pl_desc).or_(die!(
             "new_rend_pl_state: Failed to create render pipeline state"
@@ -214,8 +206,7 @@ impl<'l> DrawState<'l> {
             draw_receiver,
             cmd_queue,
             quad_vtex_buf,
-            smile,
-            dbg_buf,
+            bound_paltex: vec![smile, bubu, toge, lima],
             rend_pl_state,
             frame: 0,
             config,
@@ -230,13 +221,6 @@ struct Vertex {
     pos: [f32; 2],
 }
 
-#[derive(Debug, Clone)]
-#[repr(C, align(16))]
-struct VertexOut {
-    color: [f32; 4],
-    pos: [f32; 4],
-}
-
 impl Vertex {
     fn new(pos: [f32; 2]) -> Self {
         Vertex { pos }
@@ -244,10 +228,10 @@ impl Vertex {
 }
 
 unsafe impl AsBytes for Vertex {}
-unsafe impl AsBytes for VertexOut {}
 
 #[derive(Debug)]
 struct BoundPalTex {
+    quad_size: [u16; 2],
     pal: MTLTexture::PPtr,
     tex: MTLTexture::PPtr,
 }
@@ -256,8 +240,8 @@ impl BoundPalTex {
     fn new(paltex: &PalTex, device: &mut MTLDevice::PPtr) -> Self {
         let tex_desc = MTLTextureDescriptor::IPtr::new_2d(
             MTLPixelFormat::R8Uint,
-            paltex.width(),
-            paltex.height(),
+            paltex.width as usize,
+            paltex.height as usize,
         );
 
         let tex = device
@@ -268,20 +252,20 @@ impl BoundPalTex {
             MTLRegion {
                 origin: MTLOrigin { x: 0, y: 0, z: 0 },
                 size: MTLSize {
-                    width: paltex.width() as u64,
-                    height: paltex.height() as u64,
+                    width: paltex.width as u64,
+                    height: paltex.height as u64,
                     depth: 1,
                 },
             },
-            paltex.data(),
-            paltex.width() * size_of::<u8>(),
+            paltex.data.as_slice(),
+            paltex.width as usize * size_of::<u8>(),
         );
 
         let pal_desc = MTLTextureDescriptor::IPtr::new();
 
-        pal_desc.set_pixel_format(MTLPixelFormat::RGBA16Unorm);
+        pal_desc.set_pixel_format(MTLPixelFormat::RGBA8Unorm);
         pal_desc.set_texture_type(MTLTextureType::T1D);
-        pal_desc.set_width(paltex.palette().len() as u64);
+        pal_desc.set_width(paltex.palette.len() as u64);
 
         let pal = device
             .new_tex(pal_desc)
@@ -291,20 +275,38 @@ impl BoundPalTex {
             MTLRegion {
                 origin: MTLOrigin { x: 0, y: 0, z: 0 },
                 size: MTLSize {
-                    width: paltex.palette().len() as u64,
+                    width: paltex.palette.len() as u64,
                     height: 1,
                     depth: 1,
                 },
             },
-            paltex.palette(),
+            paltex.palette.as_slice(),
             0,
         );
 
-        Self { pal, tex }
+        Self {
+            quad_size: [paltex.width as u16, paltex.height as u16],
+            pal,
+            tex,
+        }
     }
 
     fn bind_frag(&self, rencoder: &MTLRenderCommandEncoder::PPtr) {
         rencoder.set_frag_tex(self.tex, 0);
         rencoder.set_frag_tex(self.pal, 1);
     }
+}
+
+fn draw_squad(
+    rencoder: &MTLRenderCommandEncoder::PPtr,
+    quad_vtex_buf: MTLBuffer::PPtr,
+    globals: &Globals,
+    pos: &[ScreenPos],
+    pal: &BoundPalTex,
+) {
+    rencoder.set_vtex_buf(quad_vtex_buf, 0, 0);
+    rencoder.set_vtex_bytes(globals, 1);
+    rencoder.set_vtex_bytes(pos, 2);
+    pal.bind_frag(rencoder);
+    rencoder.draw_primitives(MTLPrimitiveType::TriangleStrip, 0, 4, pos.len());
 }

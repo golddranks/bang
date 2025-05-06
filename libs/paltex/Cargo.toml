@@ -1,0 +1,12 @@
+[package]
+name = "paltex"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bang_core = { path = "../../bang_core" }
+
+[features]
+encoding = []
+decoding = []
+default = ["decoding"]

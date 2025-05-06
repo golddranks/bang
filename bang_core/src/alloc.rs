@@ -96,7 +96,7 @@ impl<P> Vecs<P> {
         let byte_size = vec.len() * *type_size;
         let byte_cap = vec.capacity() * *type_size;
         let new_len = byte_size / size_of::<T>(); // The divisor is known compile-time and is a power of 2
-        let new_cap = byte_cap / size_of::<T>(); // Likewise
+        let new_cap = byte_cap / size_of::<T>(); // Likewise.
         let new_ptr = vec.as_mut_ptr() as *mut T;
 
         *type_size = size_of::<T>();

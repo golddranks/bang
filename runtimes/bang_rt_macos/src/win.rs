@@ -156,9 +156,13 @@ impl<'l> Window<'l> {
         win.set_title(title);
         win.set_is_visible(true);
         win.set_main();
-        win.center();
         win.set_content_min_size(size);
         win.set_content_aspect_ratio(size);
+        win.set_content_size(CGSize {
+            width: size.width * config.scale as f64,
+            height: size.height * config.scale as f64,
+        });
+        win.center();
         Window {
             app,
             _win: win,

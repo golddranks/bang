@@ -13,7 +13,7 @@ struct VertexOut {
 
 struct Globals {
     uint frame;
-    uint _pad;
+    ushort2 quad_size;
     float2 reso;
 };
 
@@ -28,8 +28,7 @@ vertex VertexOut vertexShader(
     VertexOut out;
 
     out.pos = float4(
-        (instancePos.x + in.pos.x) / globals.reso.x * 2.0,
-        (instancePos.y + in.pos.y) / globals.reso.y * 2.0,
+        (instancePos + in.pos * float2(globals.quad_size)) / globals.reso * 2.0,
         0, 1);
 
     float2 uvs[4] = {

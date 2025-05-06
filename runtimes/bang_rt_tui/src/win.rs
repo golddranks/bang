@@ -8,7 +8,7 @@ use bang_rt_common::end::Ender;
 use bang_rt_common::error::OrDie;
 use bang_rt_common::{draw::DrawReceiver, input::InputGatherer};
 
-use crate::draw::draw;
+use crate::draw::{draw, flush, show_cursor};
 use crate::{LOOP_MS, input};
 
 unsafe extern "C" {
@@ -158,5 +158,7 @@ impl<'l> Window<'l> {
             }
             sleep(Duration::from_millis(LOOP_MS));
         }
+        show_cursor(&mut buf);
+        flush(&mut buf, &mut output_stream);
     }
 }

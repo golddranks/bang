@@ -602,6 +602,7 @@ pub enum MTLPrimitiveType {
 #[repr(u64)]
 pub enum MTLPixelFormat {
     R8Uint = 13,
+    RGBA8Unorm = 70,
     RGBA16Unorm = 110,
 }
 

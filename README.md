@@ -2,7 +2,10 @@
 
 ## Currently working on
 
-- Draw something with a pixelated texture
+- Fix allocations:
+  - What about single allocatons with Drop?
+  - Life is hard without overlapping Vecs
+  - Miri fails currently
 
 ## Short term
 

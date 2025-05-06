@@ -130,6 +130,7 @@ mod tests {
         name: "Test",
         resolution: (800, 600),
         logic_fps: 60,
+        scale: 1,
     };
 
     #[derive(Default)]

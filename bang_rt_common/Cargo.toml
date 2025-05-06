@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 bang_core = { path = "../bang_core" }
+paltex = { path = "../libs/paltex" }
 
 [dev-dependencies]
 test_normal_dylib = { path = "tests/test_normal_dylib" }

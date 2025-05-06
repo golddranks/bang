@@ -15,6 +15,7 @@ pub const CONFIG: Config = Config {
     name: "Demo",
     resolution: (320, 200),
     logic_fps: 60,
+    scale: 1,
 };
 
 #[cfg(feature = "export")]

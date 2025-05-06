@@ -13,9 +13,26 @@ fn erase_screen(buf: &mut Vec<u8>) {
     write!(buf, "{CSI}2J").or_(die!("Error erasing screen"));
 }
 
+fn hide_cursor(buf: &mut Vec<u8>) {
+    write!(buf, "{CSI}?25l").or_(die!("Error hiding cursor"));
+}
+
+pub fn show_cursor(buf: &mut Vec<u8>) {
+    write!(buf, "{CSI}?25h").or_(die!("Error showing cursor"));
+}
+
+pub fn flush(buf: &mut Vec<u8>, output_stream: &mut StdoutLock<'static>) {
+    move_to(buf, 0, 0);
+    output_stream
+        .write_all(buf)
+        .or_(die!("Error writing to stdout"));
+    output_stream.flush().or_(die!("Error flushing stdout"));
+}
+
 pub fn draw(frame: &DrawFrame, output_stream: &mut StdoutLock<'static>, buf: &mut Vec<u8>) {
     buf.clear();
     erase_screen(buf);
+    hide_cursor(buf);
     let chars = "████";
     for cmd in frame.cmds {
         match cmd {
@@ -28,11 +45,7 @@ pub fn draw(frame: &DrawFrame, output_stream: &mut StdoutLock<'static>, buf: &mu
                         write!(buf, "{chars}").or_(die!("Error writing to buffer"));
                     }
                 }
-                move_to(buf, 0, 0);
-                output_stream
-                    .write_all(buf)
-                    .or_(die!("Error writing to stdout"));
-                output_stream.flush().or_(die!("Error flushing stdout"));
+                flush(buf, output_stream);
             }
         }
     }
