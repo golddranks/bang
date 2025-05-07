@@ -57,16 +57,24 @@ pub fn make_draw_tools<'l>(
 }
 
 impl<'l> DrawSender<'l> {
+    // Safety: this looks outrageous, but it's safe because we are dynamically
+    // taking care that the owner of the 'f allocation (AllocManager<'l>) doesn't
+    // touch the allocation until it's officially retired.
+    // Also, it doesn't even require unsafe here, because it's raw pointers.
+    #[allow(clippy::unnecessary_cast)]
+    fn extend_lifetime_to_dynamic<'f>(frame: &'f mut DrawFrame<'f>) -> *mut DrawFrame<'l> {
+        &raw mut *frame as *mut DrawFrame<'l>
+    }
+
     pub fn send<'f>(&mut self, frame: &'f mut DrawFrame<'f>) {
         let prev_alloc_seq = self.sent_alloc_seq;
         self.sent_alloc_seq = frame.alloc_seq;
-        #[allow(clippy::unnecessary_cast)]
-        let frame = &raw mut *frame as *mut DrawFrame<'l>;
+        let frame = DrawSender::extend_lifetime_to_dynamic(frame);
         let missed_frame = self.shared.fresh.swap(frame, Ordering::Release);
 
-        // The frame is non-null and thus was not consumed by the receiver
-        // but it got already replaced by the newly sent frame, so we can retire it
         if missed_frame.is_null().not() {
+            // The frame is non-null and thus was not consumed by the receiver
+            // but it got already replaced by the newly sent frame, so we can retire it
             self.retirer.retire_early(prev_alloc_seq);
         }
     }

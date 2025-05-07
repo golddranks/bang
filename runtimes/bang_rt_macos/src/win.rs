@@ -26,7 +26,7 @@ extern "C" fn app_should_terminate(
     sender: OPtr,
 ) -> NSApplicationTerminateReply {
     NSApplication::IPtr::shared().stop(sender);
-    NSApplicationTerminateReply::NSTerminateCancel
+    NSApplicationTerminateReply::Cancel
 }
 
 extern "C" fn win_should_close(_slf: TypedObj<WinState>, _sel: Sel, sender: OPtr) -> bool {

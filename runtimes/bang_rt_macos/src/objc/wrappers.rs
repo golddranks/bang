@@ -1098,9 +1098,9 @@ impl NSWindowDelegate::PPtr {
 #[derive(Debug)]
 #[repr(u64)]
 pub enum NSApplicationTerminateReply {
-    NSTerminateCancel = 0,
-    NSTerminateNow = 1,
-    NSTerminateLater = 2,
+    Cancel = 0,
+    Now = 1,
+    Later = 2,
 }
 
 unsafe impl Protocol for NSApplicationDelegate::PPtr {
