@@ -74,8 +74,9 @@ objc_protocol!(MTLBuffer);
 objc_protocol!(MTLRenderPipelineState);
 objc_protocol!(MTLLibrary);
 objc_protocol!(MTLFunction);
-objc_protocol!(MTKViewDelegate);
+objc_protocol!(NSApplicationDelegate);
 objc_protocol!(NSWindowDelegate);
+objc_protocol!(MTKViewDelegate);
 objc_protocol!(MTLTexture);
 
 pub mod sel {
@@ -98,6 +99,7 @@ pub mod sel {
     objc_sel!(setActivationPolicy_);
     objc_sel!(run);
     objc_sel!(stop_);
+    objc_sel!(terminate_);
     objc_prop_sel!(mainMenu);
     objc_prop_sel!(isRunning);
 
@@ -178,6 +180,9 @@ pub mod sel {
     objc_prop_sel!(sourceAlphaBlendFactor);
     objc_prop_sel!(destinationRGBBlendFactor);
     objc_prop_sel!(destinationAlphaBlendFactor);
+
+    // NSApplicationDelegate
+    objc_sel!(applicationShouldTerminate_);
 
     // NSWindowDelegate
     objc_sel!(windowWillResize_toSize_);
@@ -271,6 +276,7 @@ pub fn init_objc() {
     sel::setActivationPolicy_.init();
     sel::run.init();
     sel::stop_.init();
+    sel::terminate_.init();
     objc_prop_sel_init!(mainMenu);
     objc_prop_sel_init!(isRunning);
 
@@ -353,6 +359,9 @@ pub fn init_objc() {
     objc_prop_sel_init!(sourceAlphaBlendFactor);
     objc_prop_sel_init!(destinationRGBBlendFactor);
     objc_prop_sel_init!(destinationAlphaBlendFactor);
+
+    // NSApplicationDelegate
+    sel::applicationShouldTerminate_.init();
 
     // NSWindowDelegate
     sel::windowWillResize_toSize_.init();
@@ -451,8 +460,18 @@ impl NSApplication::IPtr {
         unsafe { msg1::<(), OPtr>(self.0, sel::stop_.sel(), sender) };
     }
 
+    pub fn terminate(&self, sender: OPtr) {
+        unsafe { msg1::<(), OPtr>(self.0, sel::terminate_.sel(), sender) };
+    }
+
     objc_prop_impl!(mainMenu, Option<NSMenu::IPtr>, main_menu, set_main_menu);
     objc_prop_impl!(isRunning, bool, running);
+    objc_prop_impl!(
+        delegate,
+        NSApplicationDelegate::PPtr,
+        delegate,
+        set_delegate
+    );
 }
 
 #[repr(i64)]
@@ -1073,6 +1092,36 @@ impl NSWindowDelegate::PPtr {
                 .add_method1(sel::windowDidEndLiveResize_.sel(), will_resize, c"v@:@");
         }
         cls.cls().add_protocol(c"NSWindowDelegate")
+    }
+}
+
+#[derive(Debug)]
+#[repr(u64)]
+pub enum NSApplicationTerminateReply {
+    NSTerminateCancel = 0,
+    NSTerminateNow = 1,
+    NSTerminateLater = 2,
+}
+
+unsafe impl Protocol for NSApplicationDelegate::PPtr {
+    fn new(obj: OPtr) -> Self {
+        Self(obj)
+    }
+}
+
+impl NSApplicationDelegate::PPtr {
+    pub fn implement<T>(
+        cls: &TypedCls<T, Self>,
+        should_terminate: extern "C" fn(TypedObj<T>, Sel, OPtr) -> NSApplicationTerminateReply,
+    ) -> bool {
+        unsafe {
+            cls.cls().add_method1(
+                sel::applicationShouldTerminate_.sel(),
+                should_terminate,
+                c"c@:@",
+            );
+        }
+        cls.cls().add_protocol(c"NSApplicationDelegate")
     }
 }
 

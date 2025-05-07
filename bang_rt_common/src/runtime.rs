@@ -9,8 +9,10 @@ use bang_core::Config;
 
 use crate::{
     alloc::{SharedAllocState, make_alloc_tools},
+    die,
     draw::{DrawReceiver, SharedDrawState, make_draw_tools},
     end::Ender,
+    error::OrDie,
     input::{InputGatherer, SharedInputState, make_input_tools},
     load::{FrameLogic, get_symbols},
     logic_loop,
@@ -70,20 +72,24 @@ pub fn start_rt<'l, RT: Runtime>(rt: RT, frame_logic: impl FrameLogic<'l>, confi
     let mut rt_err = None;
 
     thread::scope(|s| {
-        s.spawn(|| {
-            catch_unwind(AssertUnwindSafe(|| {
-                logic_loop::run(
-                    frame_logic,
-                    input_consumer,
-                    draw_sender,
-                    alloc_manager,
-                    &ender,
-                    config,
-                )
-            }))
-            .unwrap_or_else(|err| logic_err = Some(err));
-            ender.soft_quit();
-        });
+        thread::Builder::new()
+            .name("logic_loop".to_owned())
+            .spawn_scoped(s, || {
+                catch_unwind(AssertUnwindSafe(|| {
+                    logic_loop::run(
+                        frame_logic,
+                        input_consumer,
+                        draw_sender,
+                        alloc_manager,
+                        &ender,
+                        config,
+                    )
+                }))
+                .unwrap_or_else(|err| logic_err = Some(err));
+                dbg!();
+                ender.soft_quit();
+            })
+            .or_(die!("Unable to create thread"));
 
         // Runs in main thread because of possible platform API thread safety limitations
         catch_unwind(AssertUnwindSafe(|| RT::run(&mut window)))

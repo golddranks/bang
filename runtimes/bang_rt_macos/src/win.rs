@@ -12,15 +12,25 @@ use crate::{
         NSString, OPtr, Sel, TypedCls, TypedObj, TypedPtr,
         wrappers::{
             CGPoint, CGRect, CGSize, MTKView, MTLDevice, NSApplication,
-            NSApplicationActivationPolicy, NSBackingStoreType, NSEvent, NSMenu, NSMenuItem,
-            NSResponder, NSWindow, NSWindowDelegate, NSWindowStyleMask, sel,
+            NSApplicationActivationPolicy, NSApplicationDelegate, NSApplicationTerminateReply,
+            NSBackingStoreType, NSEvent, NSMenu, NSMenuItem, NSResponder, NSWindow,
+            NSWindowDelegate, NSWindowStyleMask, sel,
         },
     },
     timer::TimeConverter,
 };
 
-extern "C" fn win_should_close(_slf: TypedObj<WinState>, _sel: Sel, sender: OPtr) -> bool {
+extern "C" fn app_should_terminate(
+    _slf: TypedObj<AppState>,
+    _sel: Sel,
+    sender: OPtr,
+) -> NSApplicationTerminateReply {
     NSApplication::IPtr::shared().stop(sender);
+    NSApplicationTerminateReply::NSTerminateCancel
+}
+
+extern "C" fn win_should_close(_slf: TypedObj<WinState>, _sel: Sel, sender: OPtr) -> bool {
+    NSApplication::IPtr::shared().terminate(sender);
     true
 }
 
@@ -56,13 +66,26 @@ extern "C" fn flags_changed(mut slf: TypedObj<MyNSWindow>, _sel: Sel, flags: NSE
 }
 
 #[derive(Debug)]
+struct AppState {}
+
+impl AppState {
+    fn init_delegate_cls() -> TypedCls<AppState, NSApplicationDelegate::PPtr> {
+        let cls =
+            TypedCls::make_class(c"NSWindowDelegateWithWinState").or_(die!("Already exists?"));
+        NSApplicationDelegate::PPtr::implement(&cls, app_should_terminate);
+        cls
+    }
+}
+
+#[derive(Debug)]
 struct WinState {
     win: NSWindow::IPtr,
 }
 
 impl WinState {
     fn init_delegate_cls() -> TypedCls<WinState, NSWindowDelegate::PPtr> {
-        let cls = TypedCls::make_class(c"NSWindowDelegateWithWinState").or_(die!("UNREACHABLE"));
+        let cls =
+            TypedCls::make_class(c"NSApplicationDelegateWithAppState").or_(die!("Already exists?"));
         NSWindowDelegate::PPtr::implement(&cls, win_should_close, win_did_resize);
         cls
     }
@@ -97,7 +120,7 @@ fn setup_main_menu(app: NSApplication::IPtr) {
     let main_menu = NSMenu::IPtr::new(c"MainMenu");
     let app_menu_item = NSMenuItem::IPtr::new(c"AppMenu", None, c"");
     let app_menu = NSMenu::IPtr::new(c"AppMenu");
-    let quit_item = NSMenuItem::IPtr::new(c"Quit", Some(sel::stop_.sel()), c"q");
+    let quit_item = NSMenuItem::IPtr::new(c"Quit", Some(sel::terminate_.sel()), c"q");
     app_menu.add_item(quit_item);
     app_menu_item.set_submenu(app_menu);
     main_menu.add_item(app_menu_item);
@@ -117,11 +140,13 @@ impl<'l> Window<'l> {
         config: &'l Config,
         ender: &'l Ender,
     ) -> Self {
+        let app_dele_cls = AppState::init_delegate_cls();
         let win_dele_cls = WinState::init_delegate_cls();
         let view_dele_cls = DrawState::init_delegate_cls();
         let my_win = MyNSWindow::init_as_subclass();
 
         let app = NSApplication::IPtr::shared();
+        app.set_delegate(app_dele_cls.alloc_init_upcasted(AppState {}));
         app.set_activation_policy(NSApplicationActivationPolicy::Regular);
         setup_main_menu(app);
 
@@ -178,7 +203,7 @@ impl<'l> Window<'l> {
         if ender.should_end() {
             let app = NSApplication::IPtr::shared();
             if app.running() {
-                app.stop(app.obj());
+                app.terminate(app.obj());
             }
         }
     }
