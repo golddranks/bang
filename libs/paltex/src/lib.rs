@@ -80,4 +80,13 @@ mod tests {
         let decoded = decode_main(&header, &output);
         assert_eq!(decoded, input);
     }
+
+    #[test]
+    fn fuzz_results() {
+        let _ = decode(&[]);
+        let _ = decode(&[180, 16, 0, 0, 180, 0]);
+        let _ = decode(&[0, 0, 0, 0, 0, 10]);
+        let _ = decode(&[76, 36, 1, 0, 0, 218, 255]);
+        let _ = decode(&[76, 255, 254, 254, 0, 10, 0, 10]); // Used to eat too much memory
+    }
 }

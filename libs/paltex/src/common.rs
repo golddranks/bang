@@ -1,4 +1,15 @@
+use std::fmt::{Debug, Display};
+
 use bang_core::draw::AsBytes;
+
+#[derive(Debug)]
+pub struct InvalidInput;
+
+impl Display for InvalidInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
 
 #[derive(Debug, Default)]
 #[repr(C)]
@@ -61,7 +72,7 @@ pub struct PalTex {
 }
 
 impl PalTex {
-    pub fn from_encoded(bytes: &[u8]) -> Self {
+    pub fn from_encoded(bytes: &[u8]) -> Result<Self, InvalidInput> {
         crate::decode(bytes)
     }
 

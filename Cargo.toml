@@ -13,4 +13,5 @@ members = [
     "tools/png2paltex",
     "tools/paltex2ascii",
     "libs/paltex",
+    "libs/paltex/fuzz",
 ]

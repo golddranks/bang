@@ -1,0 +1,21 @@
+[package]
+name = "paltex-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.paltex]
+path = ".."
+
+[[bin]]
+name = "paltex"
+path = "fuzz_targets/paltex.rs"
+test = false
+doc = false
+bench = false

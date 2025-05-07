@@ -23,7 +23,7 @@ fn main() {
             .expect("Failed to read from stdin.");
         input
     };
-    let paltex = paltex::decode(&input);
+    let paltex = paltex::decode(&input).expect("Invalid paltex input?");
 
     let mut stdout = stdout().lock();
 

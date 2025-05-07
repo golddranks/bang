@@ -189,13 +189,16 @@ impl<'l> DrawState<'l> {
         );
         let smile = BoundPalTex::new(&smile, &mut device);
 
-        let bubu = PalTex::from_encoded(&std::fs::read("assets/paltex/bubu.paltex").unwrap());
+        let bubu =
+            PalTex::from_encoded(&std::fs::read("assets/paltex/bubu.paltex").unwrap()).unwrap();
         let bubu = BoundPalTex::new(&bubu, &mut device);
 
-        let toge = PalTex::from_encoded(&std::fs::read("assets/paltex/toge.paltex").unwrap());
+        let toge =
+            PalTex::from_encoded(&std::fs::read("assets/paltex/toge.paltex").unwrap()).unwrap();
         let toge = BoundPalTex::new(&toge, &mut device);
 
-        let lima = PalTex::from_encoded(&std::fs::read("assets/paltex/lima.paltex").unwrap());
+        let lima =
+            PalTex::from_encoded(&std::fs::read("assets/paltex/lima.paltex").unwrap()).unwrap();
         let lima = BoundPalTex::new(&lima, &mut device);
 
         let rend_pl_state = device.new_rend_pl_state(pl_desc).or_(die!(

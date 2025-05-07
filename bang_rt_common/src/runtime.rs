@@ -86,7 +86,6 @@ pub fn start_rt<'l, RT: Runtime>(rt: RT, frame_logic: impl FrameLogic<'l>, confi
                     )
                 }))
                 .unwrap_or_else(|err| logic_err = Some(err));
-                dbg!();
                 ender.soft_quit();
             })
             .or_(die!("Unable to create thread"));
