@@ -27,6 +27,7 @@ impl<'l> Default for SharedDrawState<'l> {
 pub struct DrawSender<'l> {
     shared: &'l SharedDrawState<'l>,
     retirer: &'l AllocRetirer<'l>,
+    sent_alloc_seq: usize,
 }
 
 #[derive(Debug)]
@@ -42,7 +43,11 @@ pub fn make_draw_tools<'l>(
 ) -> (DrawSender<'l>, DrawReceiver<'l>) {
     let shared = &*shared;
     let retirer = &*retirer;
-    let sender = DrawSender { shared, retirer };
+    let sender = DrawSender {
+        shared,
+        retirer,
+        sent_alloc_seq: 0,
+    };
     let receiver = DrawReceiver {
         shared,
         retirer,
@@ -53,12 +58,16 @@ pub fn make_draw_tools<'l>(
 
 impl<'l> DrawSender<'l> {
     pub fn send<'f>(&mut self, frame: &'f mut DrawFrame<'f>) {
+        let prev_alloc_seq = self.sent_alloc_seq;
+        self.sent_alloc_seq = frame.alloc_seq;
         #[allow(clippy::unnecessary_cast)]
         let frame = &raw mut *frame as *mut DrawFrame<'l>;
         let missed_frame = self.shared.fresh.swap(frame, Ordering::Release);
+
+        // The frame is non-null and thus was not consumed by the receiver
+        // but it got already replaced by the newly sent frame, so we can retire it
         if missed_frame.is_null().not() {
-            let missed_frame = unsafe { &*missed_frame };
-            self.retirer.retire_early(missed_frame.alloc_seq);
+            self.retirer.retire_early(prev_alloc_seq);
         }
     }
 }
