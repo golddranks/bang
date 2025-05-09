@@ -5,29 +5,28 @@
 - Fix allocations:
   - What about single allocatons with Drop?
   - Life is hard without overlapping Vec lifetimes
-  - Miri fails currently
 
 ## Short term
 
-- Drawing sprites
-  - Sending draw commands to the draw thread
-  - Implementing actual quad drawing
 - Memory allocation
-  - Frame allocator
   - Long-term allocator, with IDs
+- Resource loading (textures)
+- Entity ID system
+- User-defined config + loading functions
 - Hot reloading
   - File watching
   - Function pointer swap
-- Entity ID system
-  - Make work with hot reloading
+  - Make Entity ID system work with hot reloading
 - Better input handling
 - Fixed point math basics
+- Position + velocity components
+- Simple collision system
 
 ## Long term
 
 - Fixed point math advanced
-- WebAssembly & WebGPU
 - Audio fundamentals
+- WebAssembly & WebGPU
 
 ## Very long term
 
@@ -51,3 +50,6 @@
   - No suffix macros
 - Unsafe lifetime binders
   - https://hackmd.io/@compiler-errors/HkXwoBPaR
+- Miri-friendly APIs for memory allocation shenanigans
+  - https://github.com/rust-lang/rust/issues/129090
+  - https://github.com/rust-lang/rust/issues/74265

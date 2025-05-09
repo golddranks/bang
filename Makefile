@@ -33,8 +33,9 @@ target/tests/lib%.dylib: bang_rt_common/tests/%/src/*.rs
 
 tarpaulin-report.html:	bang_rt_common/src/*.rs \
 						bang_core/src/*.rs \
+						libs/*/src/*.rs \
 						target/tests/*.dylib
-	cargo tarpaulin -p bang_rt_common -p bang_core --lib -o html
+	cargo tarpaulin -p bang_rt_common -p bang_core -p paltex -p vec_arena --lib -o html
 
 assets/paltex/%.paltex: libs/paltex/src/*.rs tools/png2paltex/src/*.rs assets/png/%.png
 	cd assets/paltex && cargo run --bin png2paltex -- ../png

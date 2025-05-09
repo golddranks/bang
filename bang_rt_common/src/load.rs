@@ -31,8 +31,8 @@ pub fn get_symbols(lib: &CStr) -> (FrameLogicExternFn, Config) {
     (frame_logic, config.clone())
 }
 
-pub trait FrameLogic<'f>: Send {
-    fn do_frame(
+pub trait FrameLogic: Send {
+    fn do_frame<'f>(
         &self,
         alloc: &mut Alloc<'f>,
         input: &InputState,
@@ -40,8 +40,8 @@ pub trait FrameLogic<'f>: Send {
     ) -> DrawFrame<'f>;
 }
 
-impl<'f> FrameLogic<'f> for FrameLogicExternFn<'f> {
-    fn do_frame(
+impl FrameLogic for FrameLogicExternFn {
+    fn do_frame<'f>(
         &self,
         alloc: &mut Alloc<'f>,
         input: &InputState,
@@ -61,11 +61,11 @@ impl<F> InlinedFrameLogic<F> {
     }
 }
 
-impl<'f, F> FrameLogic<'f> for InlinedFrameLogic<F>
+impl<F> FrameLogic for InlinedFrameLogic<F>
 where
-    F: Send + Fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>,
+    F: Send + for<'f> Fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>,
 {
-    fn do_frame(
+    fn do_frame<'f>(
         &self,
         alloc: &mut Alloc<'f>,
         input: &InputState,

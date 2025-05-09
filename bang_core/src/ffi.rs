@@ -1,9 +1,9 @@
 use crate::{alloc::Alloc, draw::DrawFrame, game::GameState, input::InputState};
 
-pub type FrameLogicExternFn<'f> =
-    extern "Rust" fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>;
+pub type FrameLogicExternFn =
+    for<'f> extern "Rust" fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>;
 
-pub type FrameLogicFn<'f> = fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>;
+pub type FrameLogicFn = for<'f> fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>;
 
 #[macro_export]
 macro_rules! frame_logic_sym_name {

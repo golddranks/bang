@@ -114,7 +114,7 @@ impl<'l> AllocManager<'l> {
         }
     }
 
-    pub fn get_frame_alloc<'f, 's>(&'s mut self) -> &'s mut Alloc<'f> {
+    pub fn get_frame_alloc<'f>(&'f mut self) -> &'f mut Alloc<'f> {
         self.process_retired();
         let mut alloc = self.free_pool.pop().unwrap_or_default();
         self.alloc_seq += 1;
