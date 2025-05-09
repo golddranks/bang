@@ -1,150 +1,22 @@
-use std::{
-    alloc::{Layout, dealloc},
-    marker::PhantomData,
-    mem::{MaybeUninit, transmute},
-};
+use std::{marker::PhantomData, mem::transmute};
+
+mod val;
+mod vec;
 
 // Erased can't be a zero-sized type, because Vec<Erased>'s capacity returns
 // usize::MAX for a zero-sized type instead of an allocated capacity.
-struct Erased {
+
+// ErasedMax is used to be a placeholder in slide storage. It ensures that
+// the allocated slices are automatically maximally aligned (to 16 bytes).
+struct ErasedMax {
+    _padding: u128,
+}
+
+// ErasedMin is used when returning a pointer to a slice. By being minimally
+// aligned (to 1 byte), it is compatible with temporarily representing a
+// pointer to any type.
+struct ErasedMin {
     _padding: u8,
-}
-
-struct VecChunk(Box<[MaybeUninit<Vec<Erased>>]>);
-
-impl Default for VecChunk {
-    fn default() -> Self {
-        Self::new(4)
-    }
-}
-
-impl VecChunk {
-    fn new(capacity: usize) -> Self {
-        let mut vec = Vec::with_capacity(capacity);
-        vec.resize_with(capacity, || MaybeUninit::new(Vec::new()));
-        VecChunk(vec.into_boxed_slice())
-    }
-
-    fn as_ptr(&self) -> *const [MaybeUninit<Vec<Erased>>] {
-        // A workaround around current (as of Rust 1.86) Miri limitations:
-        // converting the box to a pointer retags the contents of the slice
-        // and causes an UB warning. Incidentally `&raw mut *boxed_slice` works
-        // here even if `&raw const *boxed_slice` would be semantically more correct,
-        // so we use a detour route & -> *const -> *mut -> deref -> *mut -> *const
-        // as a workaround.
-        //
-        // See https://github.com/rust-lang/miri/issues/4317
-        let chunk_ptr = &raw const *self as *mut Self;
-        unsafe { &raw mut *(*chunk_ptr).0 }
-    }
-
-    fn cap(&self) -> usize {
-        self.as_ptr().len()
-    }
-
-    /// Returns a mutable reference to the vector at the given index.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure that no other mutable references to the same slot exist
-    unsafe fn get(&mut self, idx: usize) -> &mut Vec<Erased> {
-        assert!(idx < self.cap());
-        let first_slot_ptr = (&raw mut *self.0) as *mut MaybeUninit<Vec<Erased>>;
-        // Safety: idx must be less than the capacity (asserted above)
-        let slot = unsafe { &mut *first_slot_ptr.add(idx) };
-        // Safety: slot must be initialized (happens on chunk allocation)
-        unsafe { slot.assume_init_mut() }
-    }
-
-    fn new_from_chunks(chunks: &mut Vec<VecChunk>) -> VecChunk {
-        let last_cap = chunks.last().map(|chunk| chunk.cap()).unwrap_or(1);
-        // Why x4? x2 to accommodate the sizes of the earlier chunks, and another x2 for free space
-        let mut new = Vec::with_capacity(last_cap * 4);
-        for chunk in chunks.drain(..) {
-            new.extend(chunk.0.into_iter());
-        }
-        new.resize_with(new.capacity(), || MaybeUninit::new(Vec::new()));
-        VecChunk(new.into_boxed_slice())
-    }
-}
-
-struct BySize {
-    seq: usize,
-    last: usize,
-    last_used_count: usize,
-    vec_chunks: Vec<VecChunk>,
-}
-
-impl BySize {
-    const fn new() -> Self {
-        BySize {
-            seq: 0,
-            last: 0,
-            last_used_count: 0,
-            vec_chunks: Vec::new(),
-        }
-    }
-
-    fn reset(&mut self) {
-        self.last_used_count = 0;
-        if self.last > 0 {
-            self.last = 0;
-            let chunk = VecChunk::new_from_chunks(&mut self.vec_chunks);
-            self.vec_chunks.push(chunk);
-        }
-    }
-    fn capacity_full(&self) -> bool {
-        self.vec_chunks[self.last].cap() == self.last_used_count
-    }
-
-    fn grow(&mut self) {
-        let last_cap = self.vec_chunks[self.last].cap();
-        self.vec_chunks.push(VecChunk::new(last_cap * 2));
-        self.last += 1;
-        self.last_used_count = 0;
-    }
-
-    fn get_new(&mut self, seq: usize) -> &mut Vec<Erased> {
-        if self.vec_chunks.is_empty() {
-            self.vec_chunks.push(VecChunk::default());
-        }
-
-        if seq > self.seq {
-            self.seq = seq;
-            self.reset();
-        }
-
-        if self.capacity_full() {
-            self.grow();
-        }
-
-        let chunk = &mut self.vec_chunks[self.last];
-        // Safety:
-        // We increment last_used_count immediately after getting the reference
-        // so future calls won't create aliasing mutable references.
-        // When re-using the Vec, lifetime restrictions on the allocator ensure
-        // that earlier references are dead.
-        let slot = unsafe { chunk.get(self.last_used_count) };
-        self.last_used_count += 1;
-        slot
-    }
-}
-
-struct ByAlign {
-    sizes: Vec<BySize>,
-}
-
-impl ByAlign {
-    const fn new() -> Self {
-        ByAlign { sizes: Vec::new() }
-    }
-
-    fn allocate_vec(&mut self, n_size: usize, seq: usize) -> &mut Vec<Erased> {
-        if n_size >= self.sizes.len() {
-            self.sizes.resize_with(n_size + 1, BySize::new);
-        }
-        self.sizes[n_size].get_new(seq)
-    }
 }
 
 /// Represents detailed memory usage statistics for the arena allocation system.
@@ -176,54 +48,50 @@ impl MemoryUsage {
     }
 }
 
-pub struct VecArena<'a> {
+pub struct Arena<'a> {
     alloc_seq: usize,
-    align_1: ByAlign,
-    align_2: ByAlign,
-    align_4: ByAlign,
-    align_8: ByAlign,
-    align_16: ByAlign,
-    _lifetime: PhantomData<&'a mut Erased>,
+    vec_align_1: vec::ByAlign,
+    vec_align_2: vec::ByAlign,
+    vec_align_4: vec::ByAlign,
+    vec_align_8: vec::ByAlign,
+    vec_align_16: vec::ByAlign,
+    val_align_1: val::ByAlign,
+    val_align_2: val::ByAlign,
+    val_align_4: val::ByAlign,
+    val_align_8: val::ByAlign,
+    val_align_16: val::ByAlign,
+    _lifetime: PhantomData<&'a mut ErasedMax>,
 }
 
-impl<'a> Drop for VecArena<'a> {
+impl<'a> Drop for Arena<'a> {
     fn drop(&mut self) {
         let aligns = [
-            (1, &mut self.align_1),
-            (2, &mut self.align_2),
-            (4, &mut self.align_4),
-            (8, &mut self.align_8),
-            (16, &mut self.align_16),
+            (1, &mut self.vec_align_1),
+            (2, &mut self.vec_align_2),
+            (4, &mut self.vec_align_4),
+            (8, &mut self.vec_align_8),
+            (16, &mut self.vec_align_16),
         ];
         for (align, by_align) in aligns {
-            for (n, by_size) in by_align.sizes.drain(..).enumerate() {
-                let element_size = n * align;
-                for chunk in by_size.vec_chunks {
-                    for mut slot in chunk.0 {
-                        let erased = unsafe { slot.assume_init_mut() };
-                        if erased.capacity() > 0 {
-                            let alloc_size = element_size * erased.capacity();
-                            let layout =
-                                Layout::from_size_align(alloc_size, align).expect("UNREACHABLE");
-                            let ptr = erased.as_mut_ptr() as *mut u8;
-                            unsafe { dealloc(ptr, layout) };
-                        }
-                    }
-                }
-            }
+            by_align.drop(align)
         }
     }
 }
 
-impl<'a> VecArena<'a> {
-    const fn new() -> Self {
-        VecArena {
+impl<'a> Arena<'a> {
+    fn new() -> Self {
+        Arena {
             alloc_seq: 1,
-            align_1: ByAlign::new(),
-            align_2: ByAlign::new(),
-            align_4: ByAlign::new(),
-            align_8: ByAlign::new(),
-            align_16: ByAlign::new(),
+            vec_align_1: vec::ByAlign::new(),
+            vec_align_2: vec::ByAlign::new(),
+            vec_align_4: vec::ByAlign::new(),
+            vec_align_8: vec::ByAlign::new(),
+            vec_align_16: vec::ByAlign::new(),
+            val_align_1: val::ByAlign::new(),
+            val_align_2: val::ByAlign::new(),
+            val_align_4: val::ByAlign::new(),
+            val_align_8: val::ByAlign::new(),
+            val_align_16: val::ByAlign::new(),
             _lifetime: PhantomData,
         }
     }
@@ -232,68 +100,61 @@ impl<'a> VecArena<'a> {
         let mut usage = MemoryUsage::default();
 
         let aligns = [
-            (1, &self.align_1),
-            (2, &self.align_2),
-            (4, &self.align_4),
-            (8, &self.align_8),
-            (16, &self.align_16),
+            (1, &self.vec_align_1),
+            (2, &self.vec_align_2),
+            (4, &self.vec_align_4),
+            (8, &self.vec_align_8),
+            (16, &self.vec_align_16),
         ];
 
-        usage.overhead_bytes += size_of::<VecArena>();
+        usage.overhead_bytes += size_of::<Arena>();
 
-        for (alignment, by_align) in aligns {
-            usage.overhead_bytes += by_align.sizes.capacity() * size_of::<BySize>();
-            for (n_size, by_size) in by_align.sizes.iter().enumerate() {
-                let element_size = n_size * alignment;
-                usage.chunk_count += by_size.vec_chunks.len();
-                usage.overhead_bytes += by_size.vec_chunks.capacity() * size_of::<VecChunk>();
-                let mut by_size_slots = 0;
-                for chunk in by_size.vec_chunks.iter() {
-                    by_size_slots += chunk.cap();
-                    usage.overhead_bytes += size_of_val(&*chunk.0);
-
-                    for slot_idx in 0..chunk.cap() {
-                        let vec = unsafe { &*chunk.0[slot_idx].assume_init_ref() };
-                        usage.vector_capacity_bytes += vec.capacity() * element_size;
-                        if self.alloc_seq == by_size.seq {
-                            usage.vector_content_bytes += vec.len() * element_size;
-                        }
-                    }
-                }
-
-                let last_cap = by_size
-                    .vec_chunks
-                    .last()
-                    .map(|chunk| chunk.cap())
-                    .unwrap_or(0);
-
-                usage.total_slots += by_size_slots;
-                if self.alloc_seq == by_size.seq {
-                    usage.used_slots += by_size_slots - last_cap + by_size.last_used_count;
-                }
-            }
+        for (align, by_align) in aligns {
+            by_align.memory_usage(align, self.alloc_seq, &mut usage);
         }
 
         usage
     }
 
-    const fn get_align(&mut self, align: usize) -> &mut ByAlign {
+    const fn get_vec_align(&mut self, align: usize) -> &mut vec::ByAlign {
         match align {
-            1 => &mut self.align_1,
-            2 => &mut self.align_2,
-            4 => &mut self.align_4,
-            8 => &mut self.align_8,
-            16 => &mut self.align_16,
+            1 => &mut self.vec_align_1,
+            2 => &mut self.vec_align_2,
+            4 => &mut self.vec_align_4,
+            8 => &mut self.vec_align_8,
+            16 => &mut self.vec_align_16,
             _ => panic!("Unsupported alignment"),
+        }
+    }
+
+    const fn get_val_align(&mut self, align: usize) -> &mut val::ByAlign {
+        match align {
+            1 => &mut self.val_align_1,
+            2 => &mut self.val_align_2,
+            4 => &mut self.val_align_4,
+            8 => &mut self.val_align_8,
+            16 => &mut self.val_align_16,
+            _ => panic!("Unsupported alignment"),
+        }
+    }
+
+    pub fn allocate_val<T>(&mut self, val: T) -> &'a T {
+        let byte_size = size_of::<T>();
+        let by_align = self.get_val_align(align_of::<T>());
+        let erased = by_align.allocate_val(byte_size);
+        let typed_ptr = erased as *mut ErasedMin as *mut T;
+        unsafe {
+            typed_ptr.write(val);
+            &mut *typed_ptr
         }
     }
 
     pub fn allocate_vec<T>(&mut self) -> &'a mut Vec<T> {
         let n_size = const { size_of::<T>() / align_of::<T>() };
         let seq = self.alloc_seq;
-        let by_align = self.get_align(align_of::<T>());
+        let by_align = self.get_vec_align(align_of::<T>());
         let erased = by_align.allocate_vec(n_size, seq);
-        let typed_ptr = erased as *mut Vec<Erased> as *mut Vec<T>;
+        let typed_ptr = erased as *mut Vec<ErasedMax> as *mut Vec<T>;
 
         // Safety: This cast is safe because:
         // 1. Vec<T> and Vec<Erased> have identical memory layouts regardless of T
@@ -315,6 +176,7 @@ impl<'a> VecArena<'a> {
 
     fn reset(&mut self, seq: usize) {
         self.alloc_seq = seq;
+        self.val_align_4.reset();
     }
 }
 
@@ -346,7 +208,7 @@ impl<'a> VecArena<'a> {
 /// ```
 pub struct Allocator {
     alloc_seq: usize,
-    arena: VecArena<'static>,
+    arena: Arena<'static>,
 }
 
 impl Default for Allocator {
@@ -359,7 +221,7 @@ impl Allocator {
     pub fn new() -> Self {
         Self {
             alloc_seq: 0,
-            arena: VecArena::new(),
+            arena: Arena::new(),
         }
     }
 
@@ -411,7 +273,7 @@ impl Allocator {
         self.arena.memory_usage()
     }
 
-    pub fn new_arena<'a>(&'a mut self) -> &'a mut VecArena<'a> {
+    pub fn new_arena<'a>(&'a mut self) -> &'a mut Arena<'a> {
         self.alloc_seq += 1;
         self.arena.reset(self.alloc_seq);
         // Safety: This lifetime transmutation is safe because:
@@ -430,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_no_allocation() {
-        let mut arena = VecArena::new();
+        let mut arena = Arena::new();
         let _vec = arena.allocate_vec::<u32>();
 
         drop(arena);
@@ -438,14 +300,14 @@ mod tests {
 
     #[test]
     fn test_empty_allocation() {
-        let arena = VecArena::new();
+        let arena = Arena::new();
 
         drop(arena);
     }
 
     #[test]
     fn test_basic_allocation() {
-        let mut arena = VecArena::new();
+        let mut arena = Arena::new();
 
         let vec = arena.allocate_vec::<u32>();
         assert!(vec.is_empty());
@@ -462,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_same_layout() {
-        let mut arena = VecArena::new();
+        let mut arena = Arena::new();
 
         let vec1 = arena.allocate_vec::<u8>();
         let vec2 = arena.allocate_vec::<u8>();
@@ -476,7 +338,7 @@ mod tests {
 
     #[test]
     fn test_multiple_allocations() {
-        let mut arena = VecArena::new();
+        let mut arena = Arena::new();
 
         let vec1 = arena.allocate_vec::<u8>();
         let vec2 = arena.allocate_vec::<u16>();
@@ -513,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_different_alignments() {
-        let mut arena = VecArena::new();
+        let mut arena = Arena::new();
 
         let vec1 = arena.allocate_vec::<u8>();
         let vec2 = arena.allocate_vec::<u16>();
@@ -539,7 +401,7 @@ mod tests {
 
     #[test]
     fn test_large_allocation() {
-        let mut arena = VecArena::new();
+        let mut arena = Arena::new();
 
         let vec = arena.allocate_vec::<u32>();
         for i in 0..1000 {
@@ -554,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_multiple_vectors_same_type() {
-        let mut arena = VecArena::new();
+        let mut arena = Arena::new();
 
         let vectors: Vec<_> = (0..10)
             .map(|i| {
