@@ -67,7 +67,7 @@ struct BySize {
     seq: usize,
     last: usize,
     last_used_count: usize,
-    vec_chunks: Vec<VecChunk>,
+    chunks: Vec<VecChunk>,
 }
 
 impl BySize {
@@ -76,7 +76,7 @@ impl BySize {
             seq: 0,
             last: 0,
             last_used_count: 0,
-            vec_chunks: Vec::new(),
+            chunks: Vec::new(),
         }
     }
 
@@ -84,24 +84,24 @@ impl BySize {
         self.last_used_count = 0;
         if self.last > 0 {
             self.last = 0;
-            let chunk = VecChunk::new_from_chunks(&mut self.vec_chunks);
-            self.vec_chunks.push(chunk);
+            let chunk = VecChunk::new_from_chunks(&mut self.chunks);
+            self.chunks.push(chunk);
         }
     }
     fn capacity_full(&self) -> bool {
-        self.vec_chunks[self.last].cap() == self.last_used_count
+        self.chunks[self.last].cap() == self.last_used_count
     }
 
     fn grow(&mut self) {
-        let last_cap = self.vec_chunks[self.last].cap();
-        self.vec_chunks.push(VecChunk::new(last_cap * 2));
+        let last_cap = self.chunks[self.last].cap();
+        self.chunks.push(VecChunk::new(last_cap * 2));
         self.last += 1;
         self.last_used_count = 0;
     }
 
     fn get_new(&mut self, seq: usize) -> &mut Vec<Erased> {
-        if self.vec_chunks.is_empty() {
-            self.vec_chunks.push(VecChunk::default());
+        if self.chunks.is_empty() {
+            self.chunks.push(VecChunk::default());
         }
 
         if seq > self.seq {
@@ -113,7 +113,7 @@ impl BySize {
             self.grow();
         }
 
-        let chunk = &mut self.vec_chunks[self.last];
+        let chunk = &mut self.chunks[self.last];
         // Safety:
         // We increment last_used_count immediately after getting the reference
         // so future calls won't create aliasing mutable references.
@@ -141,10 +141,10 @@ impl ByAlign {
         self.sizes[n_size].get_new(seq)
     }
 
-    pub fn drop(&mut self, align: usize) {
+    pub(crate) fn drop(&mut self, align: usize) {
         for (n, by_size) in self.sizes.drain(..).enumerate() {
             let element_size = n * align;
-            for chunk in by_size.vec_chunks {
+            for chunk in by_size.chunks {
                 for mut slot in chunk.0 {
                     let erased = unsafe { slot.assume_init_mut() };
                     if erased.capacity() > 0 {
@@ -159,35 +159,23 @@ impl ByAlign {
         }
     }
 
-    pub fn memory_usage(&self, align: usize, seq: usize, usage: &mut MemoryUsage) {
+    pub(crate) fn memory_usage(&self, align: usize, seq: usize, usage: &mut MemoryUsage) {
         usage.overhead_bytes += self.sizes.capacity() * size_of::<BySize>();
         for (n_size, by_size) in self.sizes.iter().enumerate() {
             let element_size = n_size * align;
-            usage.chunk_count += by_size.vec_chunks.len();
-            usage.overhead_bytes += by_size.vec_chunks.capacity() * size_of::<VecChunk>();
-            let mut by_size_slots = 0;
-            for chunk in by_size.vec_chunks.iter() {
-                by_size_slots += chunk.cap();
+            usage.overhead_bytes += by_size.chunks.capacity() * size_of::<VecChunk>();
+
+            for chunk in &by_size.chunks {
                 usage.overhead_bytes += size_of_val(&*chunk.0);
 
-                for slot_idx in 0..chunk.cap() {
-                    let vec = unsafe { &*chunk.0[slot_idx].assume_init_ref() };
-                    usage.vector_capacity_bytes += vec.capacity() * element_size;
+                for slot in chunk.0.iter() {
+                    let vec = unsafe { slot.assume_init_ref() };
+                    usage.capacity_bytes += vec.capacity() * element_size;
                     if seq == by_size.seq {
-                        usage.vector_content_bytes += vec.len() * element_size;
+                        dbg!(vec.len());
+                        usage.content_bytes += vec.len() * element_size;
                     }
                 }
-            }
-
-            let last_cap = by_size
-                .vec_chunks
-                .last()
-                .map(|chunk| chunk.cap())
-                .unwrap_or(0);
-
-            usage.total_slots += by_size_slots;
-            if seq == by_size.seq {
-                usage.used_slots += by_size_slots - last_cap + by_size.last_used_count;
             }
         }
     }

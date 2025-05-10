@@ -1,12 +1,12 @@
-use std::mem::MaybeUninit;
+use std::{cmp::max, mem::MaybeUninit};
 
-use crate::{ErasedMax, ErasedMin};
+use crate::{ErasedMax, ErasedMin, MemoryUsage};
 
 struct ValChunk(Box<[MaybeUninit<ErasedMax>]>);
 
 impl Default for ValChunk {
     fn default() -> Self {
-        Self::new(4)
+        Self::new(size_of::<MaybeUninit<ErasedMax>>())
     }
 }
 
@@ -67,7 +67,8 @@ impl ValChunk {
 pub(crate) struct ByAlign {
     last: usize,
     last_used_bytes: usize,
-    val_chunks: Vec<ValChunk>,
+    chunks: Vec<ValChunk>,
+    total_content_bytes: usize,
 }
 
 impl ByAlign {
@@ -75,28 +76,32 @@ impl ByAlign {
         ByAlign {
             last: 0,
             last_used_bytes: 0,
-            val_chunks: vec![ValChunk::default()],
+            chunks: vec![ValChunk::default()],
+            total_content_bytes: 0,
         }
     }
 
     pub(crate) fn reset(&mut self) {
         self.last_used_bytes = 0;
+        self.total_content_bytes = 0;
         if self.last > 0 {
             self.last = 0;
-            let chunk = ValChunk::new_from_chunks(&mut self.val_chunks);
-            self.val_chunks.push(chunk);
+            let chunk = ValChunk::new_from_chunks(&mut self.chunks);
+            self.chunks.push(chunk);
         }
     }
 
     fn capacity_over(&self, byte_size: usize) -> bool {
-        self.last_used_bytes + byte_size > self.val_chunks[self.last].cap_bytes()
+        self.last_used_bytes + byte_size > self.chunks[self.last].cap_bytes()
     }
 
     fn grow(&mut self, byte_size: usize) {
-        let last_cap_bytes = self.val_chunks[self.last].cap_bytes();
+        self.total_content_bytes += self.last_used_bytes;
+
+        let last_cap_bytes = self.chunks[self.last].cap_bytes();
         // Ensure new capacity is at least double the size we need
-        let new_cap_bytes = std::cmp::max(last_cap_bytes * 2, byte_size * 2);
-        self.val_chunks.push(ValChunk::new(new_cap_bytes));
+        let new_cap_bytes = max(last_cap_bytes * 2, byte_size * 2);
+        self.chunks.push(ValChunk::new(new_cap_bytes));
         self.last += 1;
         self.last_used_bytes = 0;
     }
@@ -107,13 +112,24 @@ impl ByAlign {
         }
 
         // Safety:
-        // We increment last_used_count immediately after getting the reference
+        // We increment last_used_bytes immediately after getting the reference
         // so future calls won't create aliasing mutable references.
         // When re-using values, lifetime restrictions on the allocator ensure
         // that earlier references are dead.
-        let ptr = unsafe { self.val_chunks[self.last].get(self.last_used_bytes) };
+        let ptr = unsafe { self.chunks[self.last].get(self.last_used_bytes) };
         self.last_used_bytes += byte_size;
         ptr
+    }
+
+    pub(crate) fn memory_usage(&self, usage: &mut MemoryUsage) {
+        usage.overhead_bytes += self.chunks.capacity() * size_of::<ValChunk>();
+
+        let mut total_capacity = 0;
+        for chunk in &self.chunks {
+            total_capacity += chunk.cap_bytes();
+        }
+        usage.capacity_bytes += total_capacity;
+        usage.content_bytes += self.total_content_bytes + self.last_used_bytes;
     }
 }
 
