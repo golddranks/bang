@@ -1,4 +1,7 @@
-use std::{marker::PhantomData, mem::transmute};
+use std::{
+    marker::PhantomData,
+    mem::{needs_drop, transmute},
+};
 
 mod val;
 mod vec;
@@ -37,8 +40,9 @@ impl MemoryUsage {
     }
 }
 
+#[derive(Debug)]
 pub struct Arena<'a> {
-    alloc_seq: usize,
+    pub alloc_seq: usize,
     vec_align_1: vec::ByAlign,
     vec_align_2: vec::ByAlign,
     vec_align_4: vec::ByAlign,
@@ -54,6 +58,11 @@ pub struct Arena<'a> {
 
 impl<'a> Drop for Arena<'a> {
     fn drop(&mut self) {
+        // We need to manually drop the vecs to avoid memory leaks.
+        // The vecs are not automatically dropped because they are stored as
+        // type-erased vecs in MaybeUninit<_>. The destructors of the contents
+        // of the vecs and single values are not called; this is part of the
+        // library API contract.
         let aligns = [
             (1, &mut self.vec_align_1),
             (2, &mut self.vec_align_2),
@@ -139,18 +148,31 @@ impl<'a> Arena<'a> {
         }
     }
 
+    pub fn allocate_vec<T>(&mut self) -> &'a mut Vec<T> {
+        const { assert!(!needs_drop::<T>()) };
+        self.allocate_vec_ignore_drop()
+    }
+
     pub fn allocate_val<T>(&mut self, val: T) -> &'a mut T {
+        const { assert!(!needs_drop::<T>()) };
+        self.allocate_val_ignore_drop(val)
+    }
+
+    pub fn allocate_val_ignore_drop<T>(&mut self, val: T) -> &'a mut T {
         let byte_size = size_of::<T>();
         let by_align = self.get_val_align(align_of::<T>());
-        let erased = by_align.allocate_val(byte_size);
-        let typed_ptr = erased as *mut ErasedMin as *mut T;
+        let erased_ptr = by_align.allocate_val(byte_size);
+        let typed_ptr = erased_ptr as *mut T;
+        // Safety: erased_ptr has size and alignment that is ensured to be
+        // compatible with T. The memory is originally stored as MaybeUninit<_>,
+        // and is not touched by any other route as long as the borrow is live.
         unsafe {
             typed_ptr.write(val);
             &mut *typed_ptr
         }
     }
 
-    pub fn allocate_vec<T>(&mut self) -> &'a mut Vec<T> {
+    pub fn allocate_vec_ignore_drop<T>(&mut self) -> &'a mut Vec<T> {
         let n_size = const { size_of::<T>() / align_of::<T>() };
         let seq = self.alloc_seq;
         let by_align = self.get_vec_align(align_of::<T>());
@@ -189,7 +211,7 @@ impl<'a> Arena<'a> {
 /// ```compile_fail
 /// let a = {
 ///     let mut alloc = Allocator::new();
-///     let mut arena = alloc.new_arena();
+///     let mut arena = alloc.new_arena(0);
 ///     let arena = &mut arena;
 ///
 ///     let vec1 = arena.allocate_vec::<u32>();
@@ -202,39 +224,36 @@ impl<'a> Arena<'a> {
 /// Test: getting a new arena makes the old one unusable
 /// ```compile_fail
 /// let mut alloc = Allocator::new();
-/// let mut arena = alloc.new_arena();
+/// let mut arena = alloc.new_arena(0);
 ///
 /// let vec1 = arena.allocate_vec::<u32>();
 /// vec1.push(42);
 /// assert_eq!(vec1.len(), 1);
 ///
-/// let mut arena = alloc.new_arena();
+/// let mut arena = alloc.new_arena(1);
 /// vec1.push(43);
 /// ```
-pub struct Allocator {
-    alloc_seq: usize,
+#[derive(Debug)]
+pub struct ArenaContainer {
+    pub alloc_seq: usize,
     arena: Arena<'static>,
 }
 
-impl Default for Allocator {
+impl Default for ArenaContainer {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Allocator {
-    pub fn new() -> Self {
         Self {
             alloc_seq: 0,
             arena: Arena::new(),
         }
     }
+}
 
+impl ArenaContainer {
     /// ```
-    /// use vec_arena::Allocator;
-    /// let mut alloc = Allocator::new();
+    /// use arena::ArenaContainer;
+    /// let mut alloc = ArenaContainer::default();
     /// let _ = alloc.memory_usage();
-    /// let arena = alloc.new_arena();
+    /// let arena = alloc.new_arena(0);
     /// let vec1 = arena.allocate_vec::<u32>();
     ///
     /// vec1.push(42);
@@ -242,9 +261,9 @@ impl Allocator {
     /// ```
     ///
     /// ```compile_fail
-    /// use vec_arena::Allocator;
-    /// let mut alloc = Allocator::new();
-    /// let arena = alloc.new_arena();
+    /// use arena::ArenaContainer;
+    /// let mut alloc = ArenaContainer::default();
+    /// let arena = alloc.new_arena(0);
     /// let _ = alloc.memory_usage();
     /// let vec1 = arena.allocate_vec::<u32>();
     ///
@@ -253,9 +272,9 @@ impl Allocator {
     /// ```
     ///
     /// ```compile_fail
-    /// use vec_arena::Allocator;
-    /// let mut alloc = Allocator::new();
-    /// let arena = alloc.new_arena();
+    /// use arena::ArenaContainer;
+    /// let mut alloc = ArenaContainer::default();
+    /// let arena = alloc.new_arena(0);
     /// let vec1 = arena.allocate_vec::<u32>();
     /// let _ = alloc.memory_usage();
     ///
@@ -264,23 +283,22 @@ impl Allocator {
     /// ```
     ///
     /// ```
-    /// use vec_arena::Allocator;
-    /// let mut alloc = Allocator::new();
-    /// let arena = alloc.new_arena();
+    /// use arena::ArenaContainer;
+    /// let mut alloc = ArenaContainer::default();
+    /// let arena = alloc.new_arena(0);
     /// let vec1 = arena.allocate_vec::<u32>();
     ///
     /// vec1.push(42);
     /// assert_eq!(vec1.len(), 1);
     /// let _ = alloc.memory_usage();
-    /// let mut alloc = Allocator::new();
     /// ```
     pub fn memory_usage(&self) -> MemoryUsage {
         self.arena.memory_usage()
     }
 
-    pub fn new_arena<'a>(&'a mut self) -> &'a mut Arena<'a> {
-        self.alloc_seq += 1;
-        self.arena.reset(self.alloc_seq);
+    pub fn new_arena<'a>(&'a mut self, seq: usize) -> &'a mut Arena<'a> {
+        self.alloc_seq = seq;
+        self.arena.reset(seq);
         // Safety: This lifetime transmutation is safe because:
         // 1. We are only changing the lifetime parameter, not the type structure
         // 2. The arena's 'static lifetime is being shortened to match self's lifetime 'a
@@ -293,9 +311,11 @@ impl Allocator {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::ptr::addr_eq;
 
-    use super::*;
+    #[test]
+    fn test_allocator() {}
 
     #[test]
     fn test_no_allocation() {
@@ -387,22 +407,22 @@ mod tests {
 
     #[test]
     fn test_reset() {
-        let mut alloc = Allocator::default();
-        let arena = alloc.new_arena();
+        let mut alloc = ArenaContainer::default();
+        let arena = alloc.new_arena(0);
 
         let vec = arena.allocate_vec::<u32>();
         vec.push(42);
         assert_eq!(vec.len(), 1);
 
-        let arena = alloc.new_arena();
+        let arena = alloc.new_arena(1);
         let vec = arena.allocate_vec::<u32>();
         assert!(vec.is_empty());
     }
 
     #[test]
     fn test_value_reset() {
-        let mut alloc = Allocator::default();
-        let arena = alloc.new_arena();
+        let mut alloc = ArenaContainer::default();
+        let arena = alloc.new_arena(0);
 
         let val1 = arena.allocate_val(42u32);
         let val2 = arena.allocate_val(43u64);
@@ -410,7 +430,7 @@ mod tests {
         assert_eq!(*val2, 43u64);
 
         // Get a new arena, which should reset the previous allocations
-        let arena = alloc.new_arena();
+        let arena = alloc.new_arena(1);
 
         // New allocations should work and potentially reuse memory
         let new_val1 = arena.allocate_val(100u32);
@@ -644,8 +664,8 @@ mod tests {
         assert!(large_alloc_usage.total_bytes() > small_alloc_usage.total_bytes());
 
         // Create a new arena with allocator to test reset
-        let mut alloc = Allocator::default();
-        let arena1 = alloc.new_arena();
+        let mut alloc = ArenaContainer::default();
+        let arena1 = alloc.new_arena(0);
 
         // Make some allocations
         let _v1 = arena1.allocate_val(100u32);
@@ -656,7 +676,7 @@ mod tests {
         assert_eq!(usage1.content_bytes, expected_content1);
 
         // Get a new arena (which resets the allocations)
-        let arena2 = alloc.new_arena();
+        let arena2 = alloc.new_arena(1);
 
         // Allocate again
         let _v3 = arena2.allocate_val(300u32);
@@ -690,9 +710,9 @@ mod tests {
 
     #[test]
     fn test_vector_capacity_reuse() {
-        let mut alloc = Allocator::default();
+        let mut alloc = ArenaContainer::default();
 
-        let arena = alloc.new_arena();
+        let arena = alloc.new_arena(0);
 
         // Grow u32 vecs (4-byte alignment)
         let vec_u32_a = arena.allocate_vec::<u32>();
@@ -704,7 +724,7 @@ mod tests {
             vec_u32_b.push(i);
         }
 
-        let arena = alloc.new_arena();
+        let arena = alloc.new_arena(1);
         let vec_u32 = arena.allocate_vec::<u32>();
         let vec_f32 = arena.allocate_vec::<f32>(); // f32 also has 4-byte alignment
         assert!(
@@ -719,8 +739,8 @@ mod tests {
 
     #[test]
     fn test_zero_sized() {
-        let mut alloc = Allocator::default();
-        let arena = alloc.new_arena();
+        let mut alloc = ArenaContainer::default();
+        let arena = alloc.new_arena(0);
 
         let vec = arena.allocate_vec::<()>();
 
@@ -736,8 +756,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_unsupported_alignment() {
-        let mut alloc = Allocator::default();
-        let arena = alloc.new_arena();
+        let mut alloc = ArenaContainer::default();
+        let arena = alloc.new_arena(0);
 
         #[repr(align(32))]
         struct Test;
@@ -747,8 +767,8 @@ mod tests {
 
     #[test]
     fn test_memory_usage() {
-        let mut alloc = Allocator::default();
-        let arena = alloc.new_arena();
+        let mut alloc = ArenaContainer::default();
+        let arena = alloc.new_arena(0);
 
         let initial_usage = arena.memory_usage();
         assert_eq!(initial_usage.content_bytes, 0);
@@ -766,7 +786,7 @@ mod tests {
         // Content bytes should be exactly 5 bytes (for vec1)
         assert_eq!(after_alloc.content_bytes, 5);
 
-        let arena = alloc.new_arena();
+        let arena = alloc.new_arena(1);
         let vec1 = arena.allocate_vec::<u8>();
         let vec2 = arena.allocate_vec::<u32>();
         let vec3 = arena.allocate_vec::<u64>();
@@ -786,7 +806,7 @@ mod tests {
         assert!(after_data.overhead_bytes > 0);
         assert!(after_data.memory_utilization_ratio() > 0.0);
 
-        let arena = alloc.new_arena();
+        let arena = alloc.new_arena(2);
         let after_reset = arena.memory_usage();
 
         assert_eq!(
@@ -817,10 +837,10 @@ mod tests {
 
     #[test]
     fn test_chunk_consolidation() {
-        let mut alloc = Allocator::default();
+        let mut alloc = ArenaContainer::default();
 
         // First arena: allocate vectors to force multiple chunks
-        let arena = alloc.new_arena();
+        let arena = alloc.new_arena(0);
 
         let mut original_addresses_u32 = Vec::new();
         let mut original_addresses_u64 = Vec::new();
@@ -840,7 +860,7 @@ mod tests {
         }
 
         // First consolidation of the chunks
-        let arena = alloc.new_arena();
+        let arena = alloc.new_arena(1);
 
         let mut first_addresses_u32 = Vec::new();
         let mut first_addresses_u64 = Vec::new();
@@ -869,7 +889,7 @@ mod tests {
         }
 
         // Second consolidation
-        let arena = alloc.new_arena();
+        let arena = alloc.new_arena(2);
 
         // Verify addresses remain stable after second consolidation
         for i in 0..100 {

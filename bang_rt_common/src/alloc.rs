@@ -1,12 +1,12 @@
 use std::{
     collections::VecDeque,
-    mem::transmute,
     ops::Not,
     sync::atomic::{AtomicUsize, Ordering},
     thread,
     time::Duration,
 };
 
+use arena::ArenaContainer;
 use bang_core::alloc::Alloc;
 
 #[derive(Debug)]
@@ -67,8 +67,8 @@ impl<'l> AllocCleanup<'l> {
 pub struct AllocManager<'l> {
     alloc_seq: usize,
     shared: &'l SharedAllocState,
-    free_pool: Vec<Alloc<'static>>,
-    in_use: VecDeque<Alloc<'static>>,
+    free_pool: Vec<ArenaContainer>,
+    in_use: VecDeque<ArenaContainer>,
 }
 
 pub fn make_alloc_tools<'l>(
@@ -114,14 +114,16 @@ impl<'l> AllocManager<'l> {
         }
     }
 
-    pub fn get_frame_alloc<'f>(&'f mut self) -> &'f mut Alloc<'f> {
+    pub fn get_alloc<'f>(&'f mut self) -> Alloc<'f> {
         self.process_retired();
-        let mut alloc = self.free_pool.pop().unwrap_or_default();
+        let arena_container = self.free_pool.pop().unwrap_or_default();
         self.alloc_seq += 1;
-        alloc.reset(self.alloc_seq);
-        self.in_use.push_back(alloc);
-        let alloc_mut = self.in_use.back_mut().expect("UNREACHABLE");
-        unsafe { transmute::<&mut Alloc<'static>, &mut Alloc<'f>>(alloc_mut) }
+        self.in_use.push_back(arena_container);
+        let arena_container = self.in_use.back_mut().expect("UNREACHABLE");
+        Alloc {
+            alloc_seq: self.alloc_seq,
+            arena: arena_container.new_arena(self.alloc_seq),
+        }
     }
 }
 
@@ -134,55 +136,46 @@ mod tests {
         let mut shared = SharedAllocState::default();
         let (mut manager, retirer, cleanup) = make_alloc_tools(&mut shared);
 
-        let alloc = manager.get_frame_alloc();
-        assert_eq!(alloc.alloc_seq, 1);
+        let alloc = manager.get_alloc();
         assert_eq!(manager.in_use.len(), 1);
 
-        let alloc = manager.get_frame_alloc();
-        assert_eq!(alloc.alloc_seq, 2);
+        let alloc = manager.get_alloc();
         assert_eq!(manager.in_use.len(), 2);
 
-        let alloc = manager.get_frame_alloc();
-        assert_eq!(alloc.alloc_seq, 3);
+        let alloc = manager.get_alloc();
         assert_eq!(manager.in_use.len(), 3);
         assert_eq!(manager.free_pool.len(), 0);
 
         retirer.retire_early(2);
 
-        let alloc = manager.get_frame_alloc();
-        assert_eq!(alloc.alloc_seq, 4);
+        let alloc = manager.get_alloc();
         assert_eq!(manager.in_use.len(), 3);
         assert_eq!(manager.free_pool.len(), 0);
 
         retirer.retire_up_to(3);
 
-        let alloc = manager.get_frame_alloc();
-        assert_eq!(alloc.alloc_seq, 5);
+        let alloc = manager.get_alloc();
         assert_eq!(manager.in_use.len(), 2);
         assert_eq!(manager.free_pool.len(), 1);
 
         retirer.retire_up_to(5);
 
-        let alloc = manager.get_frame_alloc();
-        assert_eq!(alloc.alloc_seq, 6);
+        let alloc = manager.get_alloc();
         assert_eq!(manager.in_use.len(), 1);
         assert_eq!(manager.free_pool.len(), 2);
 
-        let alloc = manager.get_frame_alloc();
-        assert_eq!(alloc.alloc_seq, 7);
+        let alloc = manager.get_alloc();
         assert_eq!(manager.in_use.len(), 2);
         assert_eq!(manager.free_pool.len(), 1);
 
-        let alloc = manager.get_frame_alloc();
-        assert_eq!(alloc.alloc_seq, 8);
+        let alloc = manager.get_alloc();
         assert_eq!(manager.in_use.len(), 3);
         assert_eq!(manager.free_pool.len(), 0);
 
         retirer.retire_early(7);
         retirer.retire_up_to(8);
 
-        let alloc = manager.get_frame_alloc();
-        assert_eq!(alloc.alloc_seq, 9);
+        let alloc = manager.get_alloc();
         assert_eq!(manager.in_use.len(), 1);
         assert_eq!(manager.free_pool.len(), 2);
 

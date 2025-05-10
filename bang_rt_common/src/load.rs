@@ -80,11 +80,13 @@ pub mod tests {
     #![allow(unexpected_cfgs)]
 
     use super::*;
+    use arena::ArenaContainer;
     use test_normal_dylib::test_frame_logic_normal;
 
     #[test]
     fn test_inline() {
-        let mut alloc = Alloc::default();
+        let mut arenac = ArenaContainer::default();
+        let mut alloc = Alloc::new(arenac.new_arena(1));
         let input_state = InputState::default();
         let mut game_state = GameState::default();
         let frame_logic = InlinedFrameLogic::new(test_frame_logic_normal);
@@ -94,8 +96,9 @@ pub mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_load() {
+        let mut arenac = ArenaContainer::default();
         let (frame_logic, _config) = get_symbols(c"../target/tests/libtest_normal_dylib.dylib");
-        let mut alloc = Alloc::default();
+        let mut alloc = Alloc::new(arenac.new_arena(1));
         let input_state = InputState::default();
         let mut game_state = GameState::default();
         frame_logic.do_frame(&mut alloc, &input_state, &mut game_state);

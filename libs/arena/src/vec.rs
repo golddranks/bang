@@ -5,6 +5,7 @@ use std::{
 
 use crate::{ErasedMax as Erased, MemoryUsage};
 
+#[derive(Debug)]
 struct VecChunk(Box<[MaybeUninit<Vec<Erased>>]>);
 
 impl Default for VecChunk {
@@ -63,6 +64,7 @@ impl VecChunk {
     }
 }
 
+#[derive(Debug)]
 struct BySize {
     seq: usize,
     last: usize,
@@ -125,6 +127,7 @@ impl BySize {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct ByAlign {
     sizes: Vec<BySize>,
 }

@@ -15,7 +15,7 @@ fn with_frame_lifetime<'f>(
     alloc: &mut Alloc<'f>,
 ) {
     let draw_frame = frame_logic.do_frame(alloc, input, game_state);
-    let draw_frame = alloc.frame_val(draw_frame);
+    let draw_frame = alloc.val(draw_frame);
     sender.send_to_renderer(draw_frame);
     game_state.end_frame();
 }
@@ -33,8 +33,14 @@ pub fn run(
     while ender.should_end().not() {
         let next_deadline = timer.wait_until_next();
         let input = input_consumer.get_gathered(next_deadline);
-        let alloc = alloc_manager.get_frame_alloc();
-        with_frame_lifetime(&frame_logic, input, &mut game_state, &mut sender, alloc);
+        let mut alloc = alloc_manager.get_alloc();
+        with_frame_lifetime(
+            &frame_logic,
+            input,
+            &mut game_state,
+            &mut sender,
+            &mut alloc,
+        );
     }
     // To ensure that notify_end gets called in case of should_end being set "silently" by a signal handler
     ender.soft_quit();

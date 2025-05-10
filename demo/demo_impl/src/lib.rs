@@ -32,11 +32,11 @@ pub fn frame_logic<'f>(
         let bubu = Cmd::draw_squads(TextureID(1), pos_bubu.as_slice(), alloc);
         let toge = Cmd::draw_squads(TextureID(2), pos_toge.as_slice(), alloc);
         let lima = Cmd::draw_squads(TextureID(3), pos_lima.as_slice(), alloc);
-        let mut cmd_vec = alloc.frame_vec();
+        let cmd_vec = alloc.vec();
         cmd_vec.push(bubu);
         cmd_vec.push(toge);
         cmd_vec.push(lima);
-        DrawFrame::with_cmds(cmd_vec.into_slice(), alloc)
+        DrawFrame::with_cmds(cmd_vec.as_slice(), alloc)
     }
 }
 

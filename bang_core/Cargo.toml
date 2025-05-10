@@ -3,6 +3,9 @@ name = "bang_core"
 version = "0.1.0"
 edition = "2024"
 
+[dependencies]
+arena = { path = "../libs/arena" }
+
 [features]
 eprint_alloc = []
 default = ["eprint_alloc"]

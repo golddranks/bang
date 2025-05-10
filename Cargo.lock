@@ -15,13 +15,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dde20b3d026af13f561bdd0f15edf01fc734f0dafcedbaf42bba506a9517f223"
 
 [[package]]
+name = "arena"
+version = "0.1.0"
+
+[[package]]
 name = "bang_core"
 version = "0.1.0"
+dependencies = [
+ "arena",
+]
 
 [[package]]
 name = "bang_rt_common"
 version = "0.1.0"
 dependencies = [
+ "arena",
  "bang_core",
  "paltex",
  "test_normal_dylib",
@@ -249,10 +257,6 @@ version = "0.1.0"
 dependencies = [
  "bang_core",
 ]
-
-[[package]]
-name = "vec_arena"
-version = "0.1.0"
 
 [[package]]
 name = "wasi"

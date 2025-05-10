@@ -57,11 +57,11 @@ pub enum Cmd<'f> {
 
 impl<'f> Cmd<'f> {
     pub fn draw_squads(texture: TextureID, pos: &[ScreenPos], alloc: &mut Alloc<'f>) -> Self {
-        let mut pos_vec = alloc.frame_vec();
+        let pos_vec = alloc.vec();
         for p in pos {
             pos_vec.push(*p);
         }
-        let pos = pos_vec.into_slice();
+        let pos = pos_vec.as_slice();
         Cmd::DrawSQuads { texture, pos }
     }
 }
@@ -79,27 +79,29 @@ pub static DRAW_FRAME_DUMMY: DrawFrame = DrawFrame {
 };
 
 impl<'f> DrawFrame<'f> {
-    pub fn with_cmds(cmds: &'f [Cmd], alloc: &mut Alloc<'f>) -> Self {
+    pub fn with_cmds(cmds: &'f [Cmd], mem: &mut Alloc<'f>) -> Self {
         DrawFrame {
-            alloc_seq: alloc.alloc_seq,
+            alloc_seq: mem.alloc_seq,
             cmds,
         }
     }
 
-    pub fn debug_dummies(dummies: &[(f32, f32)], alloc: &mut Alloc<'f>) -> Self {
+    pub fn debug_dummies(dummies: &[(f32, f32)], mem: &mut Alloc<'f>) -> Self {
         let mut pos_vec = Vec::new();
         for &(x, y) in dummies {
             pos_vec.push(ScreenPos { x, y });
         }
-        let cmd = Cmd::draw_squads(TextureID(0), &pos_vec, alloc);
-        let mut cmd_vec = alloc.frame_vec();
+        let cmd = Cmd::draw_squads(TextureID(0), &pos_vec, mem);
+        let cmd_vec = mem.vec();
         cmd_vec.push(cmd);
-        Self::with_cmds(cmd_vec.into_slice(), alloc)
+        Self::with_cmds(cmd_vec.as_slice(), mem)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use arena::ArenaContainer;
+
     use crate::{
         alloc::Alloc,
         draw::{AsBytes, Cmd, DrawFrame},
@@ -109,7 +111,8 @@ mod tests {
 
     #[test]
     fn test_debug_dummies() {
-        let mut alloc = Alloc::default();
+        let mut arena_container = ArenaContainer::default();
+        let mut alloc = Alloc::new(arena_container.new_arena(1));
         let dummies = [
             (0.0, 0.0),
             (1.0, 1.0),

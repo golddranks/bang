@@ -37,11 +37,7 @@ pub fn start_dynamic<RT: Runtime>(rt: RT, lib: &CStr) {
     start_rt(rt, frame_logic, &config);
 }
 
-pub fn start_static<'l, RT: Runtime>(
-    rt: RT,
-    frame_logic: impl FrameLogic,
-    config: &'static Config,
-) {
+pub fn start_static<RT: Runtime>(rt: RT, frame_logic: impl FrameLogic, config: &'static Config) {
     start_rt(rt, frame_logic, config);
 }
 
@@ -55,7 +51,7 @@ fn downcast(msg: &Box<dyn Any + Send>) -> &str {
     }
 }
 
-pub fn start_rt<'l, RT: Runtime>(rt: RT, frame_logic: impl FrameLogic, config: &'l Config) {
+pub fn start_rt<RT: Runtime>(rt: RT, frame_logic: impl FrameLogic, config: &Config) {
     rt.init_rt();
 
     let mut shared_input_state = SharedInputState::default();

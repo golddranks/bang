@@ -2,6 +2,7 @@ use std::{cmp::max, mem::MaybeUninit};
 
 use crate::{ErasedMax, ErasedMin, MemoryUsage};
 
+#[derive(Debug)]
 struct ValChunk(Box<[MaybeUninit<ErasedMax>]>);
 
 impl Default for ValChunk {
@@ -14,7 +15,7 @@ impl ValChunk {
     fn new(cap_bytes: usize) -> Self {
         let capacity = cap_bytes.div_ceil(size_of::<MaybeUninit<ErasedMax>>());
         let mut vec = Vec::with_capacity(capacity);
-        vec.resize_with(capacity, || MaybeUninit::uninit());
+        vec.resize_with(capacity, MaybeUninit::uninit);
         ValChunk(vec.into_boxed_slice())
     }
 
@@ -59,11 +60,12 @@ impl ValChunk {
         for chunk in chunks.drain(..) {
             new.extend(chunk.0.into_iter());
         }
-        new.resize_with(new.capacity(), || MaybeUninit::uninit());
+        new.resize_with(new.capacity(), MaybeUninit::uninit);
         ValChunk(new.into_boxed_slice())
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct ByAlign {
     last: usize,
     last_used_bytes: usize,

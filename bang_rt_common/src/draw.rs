@@ -110,7 +110,7 @@ mod tests {
         let (mut manager, mut retirer, cleanup) = make_alloc_tools(&mut shared_alloc);
         let (mut sender, mut receiver) = make_draw_tools(&mut shared_draw, &mut retirer);
 
-        let mut alloc = manager.get_frame_alloc(); // Frame 1
+        let mut alloc = manager.get_alloc(); // Frame 1
         let mut frame = DrawFrame::debug_dummies(&[(1.0, 2.0), (3.0, 4.0)], &mut alloc);
         sender.send_to_renderer(&mut frame);
 
@@ -123,11 +123,11 @@ mod tests {
         let fresh = receiver.get_fresh(); // The same as last time
         assert_eq!(fresh.alloc_seq, 1);
 
-        let mut alloc = manager.get_frame_alloc(); // Frame 2
+        let mut alloc = manager.get_alloc(); // Frame 2
         let mut frame = DrawFrame::debug_dummies(&[(1.0, 2.0), (3.0, 4.0)], &mut alloc);
         sender.send_to_renderer(&mut frame);
 
-        let mut alloc = manager.get_frame_alloc(); // Frame 3
+        let mut alloc = manager.get_alloc(); // Frame 3
         let mut frame = DrawFrame::debug_dummies(&[(1.0, 2.0), (3.0, 4.0)], &mut alloc);
         sender.send_to_renderer(&mut frame); // Retire early frame 2
 
