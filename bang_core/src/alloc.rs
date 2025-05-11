@@ -26,8 +26,12 @@ impl<'f> Mem<'f> {
         self.arena.allocate_slice(slice)
     }
 
-    pub fn from_iter<T>(&mut self, iter: impl ExactSizeIterator<Item = T>) -> &'f mut [T] {
-        self.arena.allocate_iter(iter)
+    pub fn from_iter<T, I>(&mut self, iter: I) -> &'f mut [T]
+    where
+        I: IntoIterator<Item = T>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        self.arena.allocate_iter(iter.into_iter())
     }
 }
 
@@ -47,9 +51,11 @@ mod tests {
         vec.push(69);
         let val = mem.val(420);
         let slice = mem.slice(&[1, 2, 3]);
+        let slice_from_iter = mem.from_iter([4, 5, 6]);
 
         assert_eq!(vec, &[69]);
         assert_eq!(*val, 420);
         assert_eq!(slice, &[1, 2, 3]);
+        assert_eq!(slice_from_iter, &[4, 5, 6]);
     }
 }

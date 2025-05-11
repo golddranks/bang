@@ -5,6 +5,7 @@ use std::{
     slice,
 };
 
+mod managed;
 #[cfg(any(test, doctest))]
 mod tests;
 mod val;
@@ -291,3 +292,5 @@ impl ArenaContainer {
         unsafe { transmute(&mut self.arena) }
     }
 }
+
+pub use managed::{Id, Managed};
