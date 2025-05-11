@@ -146,29 +146,27 @@ mod test {
     fn test_val_basic() {
         let mut by_align = ByAlign::new();
 
-        let val0_ptr = by_align.allocate_val(4) as *mut u32;
-        let val0 = unsafe {
-            val0_ptr.write(42);
-            &mut *val0_ptr
+        let helper = |by_align: &mut ByAlign, val: u32| {
+            let val_ptr = by_align.allocate_val(4) as *mut u32;
+            let val = unsafe {
+                val_ptr.write(val);
+                &mut *val_ptr
+            };
+            (val, val_ptr)
         };
-        let val1_ptr = by_align.allocate_val(4) as *mut u32;
-        let val1 = unsafe {
-            val1_ptr.write(43);
-            &mut *val1_ptr
-        };
-        *val0 = 44;
-        assert_eq!(*val0, 44);
+
+        let (val0, val0_ptr) = helper(&mut by_align, 42);
+        let (val1, _) = helper(&mut by_align, 43);
+
+        *val0 = 45;
+        assert_eq!(*val0, 45);
         assert_eq!(*val1, 43);
 
         by_align.reset();
 
-        let val3_ptr = by_align.allocate_val(4) as *mut u32;
-        let val3 = unsafe {
-            val3_ptr.write(45);
-            &mut *val3_ptr
-        };
-        assert_eq!(*val3, 45);
-        assert!(addr_eq(val0_ptr, val3_ptr));
+        let (val2, val2_ptr) = helper(&mut by_align, 44);
+        assert_eq!(*val2, 44);
+        assert!(addr_eq(val0_ptr, val2_ptr));
     }
 
     #[test]

@@ -169,6 +169,31 @@ impl<'a> Arena<'a> {
         self.allocate_val_ignore_drop(val)
     }
 
+    pub fn allocate_iter<T>(&mut self, iter: impl ExactSizeIterator<Item = T>) -> &'a mut [T] {
+        const { assert!(!needs_drop::<T>()) };
+        self.allocate_iter_ignore_drop(iter)
+    }
+
+    pub fn allocate_iter_ignore_drop<T>(
+        &mut self,
+        iter: impl ExactSizeIterator<Item = T>,
+    ) -> &'a mut [T] {
+        let item_byte_size = size_of::<T>();
+        let by_align = self.get_val_align(align_of::<T>());
+        let len = iter.len();
+        let erased_ptr = by_align.allocate_val(len * item_byte_size);
+        let start_typed_ptr = erased_ptr as *mut T;
+        let mut typed_ptr = start_typed_ptr;
+        for val in iter.take(len) {
+            unsafe {
+                typed_ptr.write(val);
+                typed_ptr = typed_ptr.add(1);
+            }
+        }
+
+        unsafe { slice::from_raw_parts_mut(start_typed_ptr, len) }
+    }
+
     pub fn allocate_vec_ignore_drop<T>(&mut self) -> &'a mut Vec<T> {
         let n_size = const { size_of::<T>() / align_of::<T>() };
         let seq = self.alloc_seq;
@@ -195,7 +220,7 @@ impl<'a> Arena<'a> {
     }
 
     pub fn allocate_slice_ignore_drop<T>(&mut self, slice: &[T]) -> &'a mut [T] {
-        let byte_size = dbg!(size_of_val(slice));
+        let byte_size = size_of_val(slice);
         let by_align = self.get_val_align(align_of::<T>());
         let erased_ptr = by_align.allocate_val(byte_size);
         let typed_ptr = erased_ptr as *mut T;

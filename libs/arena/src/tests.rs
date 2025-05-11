@@ -604,6 +604,19 @@ fn test_allocate_slice() {
     assert_eq!(usage.content_bytes, expected_bytes);
 }
 
+#[test]
+fn test_from_iter() {
+    let mut alloc = ArenaContainer::default();
+    let arena = alloc.new_arena(1);
+    let a = arena.allocate_iter([(0, 0)].into_iter());
+    let b = arena.allocate_iter([(1, 1), (2, 2), (3, 3)].into_iter());
+    let c = arena.allocate_iter([(4, 4)].into_iter());
+
+    assert_eq!(a, &[(0, 0)]);
+    assert_eq!(b, &[(1, 1), (2, 2), (3, 3)]);
+    assert_eq!(c, &[(4, 4)]);
+}
+
 /// Test: getting memory usage invalidates the arena
 /// ```compile_fail
 /// use arena::ArenaContainer;

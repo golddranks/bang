@@ -25,6 +25,10 @@ impl<'f> Mem<'f> {
     pub fn slice<T>(&mut self, slice: &[T]) -> &'f mut [T] {
         self.arena.allocate_slice(slice)
     }
+
+    pub fn from_iter<T>(&mut self, iter: impl ExactSizeIterator<Item = T>) -> &'f mut [T] {
+        self.arena.allocate_iter(iter)
+    }
 }
 
 #[cfg(test)]

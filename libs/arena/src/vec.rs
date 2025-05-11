@@ -121,7 +121,7 @@ impl BySize {
         let chunk = &mut self.chunks[self.last];
         // Safety: we increment last_used_count immediately after getting the
         // reference so future calls won't create aliasing references.
-        // When re-using the Vec, lifetime restrictions on the allocator ensure
+        // When re-using the Vec, lifetime restrictions on the Area ensure
         // that earlier references are dead.
         let slot = unsafe { chunk.get(self.last_used_count) };
         self.last_used_count += 1;
@@ -177,7 +177,6 @@ impl ByAlign {
                     let vec = unsafe { slot.assume_init_ref() };
                     usage.capacity_bytes += vec.capacity() * element_size;
                     if seq == by_size.seq {
-                        dbg!(vec.len());
                         usage.content_bytes += vec.len() * element_size;
                     }
                 }

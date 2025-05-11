@@ -1,12 +1,12 @@
 # Run and test targets
 
-macos: target/debug/libdemo_impl.dylib runtimes/bang_rt_macos/src/*.rs target/shaders.metallib assets
+macos: target/debug/libdemo_impl.dylib macos_rt assets
 	cargo run --bin macos_runner target/debug/libdemo_impl.dylib
 
-tui: target/debug/libdemo_impl.dylib runtimes/bang_rt_tui/src/*.rs
+tui: target/debug/libdemo_impl.dylib tui_rt assets
 	cargo run --bin tui_runner target/debug/libdemo_impl.dylib
 
-demo: target/shaders.metallib
+static_demo: macos_rt assets
 	cargo run --bin demo_dist
 
 miri:
@@ -16,9 +16,19 @@ coverage: tarpaulin-report.html
 
 assets: assets/paltex/*.paltex
 
+
 # Build targets
 
-target/debug/libdemo_impl.dylib: demo/demo_impl/src/*.rs
+core: bang_core/src/*.rs libs/*/src/*.rs
+	cargo build -p bang_core
+
+macos_rt: runtimes/bang_rt_macos/src/*.rs core target/shaders.metallib
+	cargo build -p bang_rt_macos
+
+tui_rt: runtimes/bang_rt_tui/src/*.rs core
+	cargo build -p bang_rt_tui
+
+target/debug/libdemo_impl.dylib: core
 	cargo build -p demo_impl
 
 target/shaders.metallib: runtimes/bang_rt_macos/src/shaders.metal

@@ -42,6 +42,12 @@ pub struct ScreenPos {
     pub y: f32,
 }
 
+impl ScreenPos {
+    pub fn slice<'f>(slice: &[(f32, f32)], mem: &mut Mem<'f>) -> &'f [ScreenPos] {
+        mem.from_iter(slice.iter().map(|&(x, y)| ScreenPos { x, y }))
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct TextureID(pub u64);
@@ -56,12 +62,7 @@ pub enum Cmd<'f> {
 }
 
 impl<'f> Cmd<'f> {
-    pub fn draw_squads(texture: TextureID, pos: &[ScreenPos], alloc: &mut Mem<'f>) -> Self {
-        let pos_vec = alloc.vec();
-        for p in pos {
-            pos_vec.push(*p);
-        }
-        let pos = pos_vec.as_slice();
+    pub fn draw_s_quads(texture: TextureID, pos: &'f [ScreenPos]) -> Self {
         Cmd::DrawSQuads { texture, pos }
     }
 }
@@ -79,22 +80,17 @@ pub static DRAW_FRAME_DUMMY: DrawFrame = DrawFrame {
 };
 
 impl<'f> DrawFrame<'f> {
-    pub fn with_cmds(cmds: &'f [Cmd], mem: &mut Mem<'f>) -> Self {
+    pub fn with_cmds(cmds: &'f [Cmd], seq: usize) -> Self {
         DrawFrame {
-            alloc_seq: mem.alloc_seq,
+            alloc_seq: seq,
             cmds,
         }
     }
 
     pub fn debug_dummies(dummies: &[(f32, f32)], mem: &mut Mem<'f>) -> Self {
-        let mut pos_vec = Vec::new();
-        for &(x, y) in dummies {
-            pos_vec.push(ScreenPos { x, y });
-        }
-        let cmd = Cmd::draw_squads(TextureID(0), &pos_vec, mem);
-        let cmd_vec = mem.vec();
-        cmd_vec.push(cmd);
-        Self::with_cmds(cmd_vec.as_slice(), mem)
+        let pos = mem.from_iter(dummies.iter().map(|&(x, y)| ScreenPos { x, y }));
+        let cmds = mem.slice(&[Cmd::draw_s_quads(TextureID(0), pos)]);
+        Self::with_cmds(cmds, mem.alloc_seq)
     }
 }
 
