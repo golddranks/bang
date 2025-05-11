@@ -1,9 +1,9 @@
-use crate::{alloc::Alloc, draw::DrawFrame, game::GameState, input::InputState};
+use crate::{alloc::Mem, draw::DrawFrame, game::GameState, input::InputState};
 
 pub type FrameLogicExternFn =
-    for<'f> extern "Rust" fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>;
+    for<'f> extern "Rust" fn(&mut Mem<'f>, &InputState, &mut GameState) -> DrawFrame<'f>;
 
-pub type FrameLogicFn = for<'f> fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>;
+pub type FrameLogicFn = for<'f> fn(&mut Mem<'f>, &InputState, &mut GameState) -> DrawFrame<'f>;
 
 #[macro_export]
 macro_rules! frame_logic_sym_name {
@@ -24,7 +24,7 @@ macro_rules! export_frame_logic {
     ($impl:ident) => {
         #[unsafe(export_name = $crate::frame_logic_sym_name!())]
         pub extern "Rust" fn frame_logic_no_mangle<'f>(
-            alloc: &mut Alloc<'f>,
+            alloc: &mut Mem<'f>,
             input: &InputState,
             game_state: &mut GameState,
         ) -> DrawFrame<'f> {

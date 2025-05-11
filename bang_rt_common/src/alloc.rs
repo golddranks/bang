@@ -7,7 +7,7 @@ use std::{
 };
 
 use arena::ArenaContainer;
-use bang_core::alloc::Alloc;
+use bang_core::alloc::Mem;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -114,13 +114,13 @@ impl<'l> AllocManager<'l> {
         }
     }
 
-    pub fn get_alloc<'f>(&'f mut self) -> Alloc<'f> {
+    pub fn get_alloc<'f>(&'f mut self) -> Mem<'f> {
         self.process_retired();
         let arena_container = self.free_pool.pop().unwrap_or_default();
         self.alloc_seq += 1;
         self.in_use.push_back(arena_container);
         let arena_container = self.in_use.back_mut().expect("UNREACHABLE");
-        Alloc {
+        Mem {
             alloc_seq: self.alloc_seq,
             arena: arena_container.new_arena(self.alloc_seq),
         }
@@ -137,38 +137,46 @@ mod tests {
         let (mut manager, retirer, cleanup) = make_alloc_tools(&mut shared);
 
         let alloc = manager.get_alloc();
+        assert_eq!(alloc.alloc_seq, 1);
         assert_eq!(manager.in_use.len(), 1);
 
         let alloc = manager.get_alloc();
+        assert_eq!(alloc.alloc_seq, 2);
         assert_eq!(manager.in_use.len(), 2);
 
         let alloc = manager.get_alloc();
+        assert_eq!(alloc.alloc_seq, 3);
         assert_eq!(manager.in_use.len(), 3);
         assert_eq!(manager.free_pool.len(), 0);
 
         retirer.retire_early(2);
 
         let alloc = manager.get_alloc();
+        assert_eq!(alloc.alloc_seq, 4);
         assert_eq!(manager.in_use.len(), 3);
         assert_eq!(manager.free_pool.len(), 0);
 
         retirer.retire_up_to(3);
 
         let alloc = manager.get_alloc();
+        assert_eq!(alloc.alloc_seq, 5);
         assert_eq!(manager.in_use.len(), 2);
         assert_eq!(manager.free_pool.len(), 1);
 
         retirer.retire_up_to(5);
 
         let alloc = manager.get_alloc();
+        assert_eq!(alloc.alloc_seq, 6);
         assert_eq!(manager.in_use.len(), 1);
         assert_eq!(manager.free_pool.len(), 2);
 
         let alloc = manager.get_alloc();
+        assert_eq!(alloc.alloc_seq, 7);
         assert_eq!(manager.in_use.len(), 2);
         assert_eq!(manager.free_pool.len(), 1);
 
         let alloc = manager.get_alloc();
+        assert_eq!(alloc.alloc_seq, 8);
         assert_eq!(manager.in_use.len(), 3);
         assert_eq!(manager.free_pool.len(), 0);
 
@@ -176,6 +184,7 @@ mod tests {
         retirer.retire_up_to(8);
 
         let alloc = manager.get_alloc();
+        assert_eq!(alloc.alloc_seq, 9);
         assert_eq!(manager.in_use.len(), 1);
         assert_eq!(manager.free_pool.len(), 2);
 

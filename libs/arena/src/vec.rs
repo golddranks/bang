@@ -42,7 +42,9 @@ impl VecChunk {
     ///
     /// # Safety
     ///
-    /// Caller must ensure that no other mutable references to the same slot exist
+    /// Caller must ensure that no other references to the pointed slot
+    /// exist, and no other such references are created until the
+    /// pointer and possible references derived from it are no longer used.
     unsafe fn get(&mut self, idx: usize) -> &mut Vec<Erased> {
         assert!(idx < self.cap());
         let first_slot_ptr = (&raw mut *self.0) as *mut MaybeUninit<Vec<Erased>>;
@@ -54,7 +56,8 @@ impl VecChunk {
 
     fn new_from_chunks(chunks: &mut Vec<VecChunk>) -> VecChunk {
         let last_cap = chunks.last().map(|chunk| chunk.cap()).unwrap_or(1);
-        // Why x4? x2 to accommodate the sizes of the earlier chunks, and another x2 for free space
+        // Why x4? x2 to accommodate the sizes of the earlier chunks,
+        // and another x2 for free space
         let mut new = Vec::with_capacity(last_cap * 4);
         for chunk in chunks.drain(..) {
             new.extend(chunk.0.into_iter());
@@ -116,9 +119,8 @@ impl BySize {
         }
 
         let chunk = &mut self.chunks[self.last];
-        // Safety:
-        // We increment last_used_count immediately after getting the reference
-        // so future calls won't create aliasing mutable references.
+        // Safety: we increment last_used_count immediately after getting the
+        // reference so future calls won't create aliasing references.
         // When re-using the Vec, lifetime restrictions on the allocator ensure
         // that earlier references are dead.
         let slot = unsafe { chunk.get(self.last_used_count) };

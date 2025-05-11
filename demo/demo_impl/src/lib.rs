@@ -1,6 +1,6 @@
 use bang_core::{
     Config,
-    alloc::Alloc,
+    alloc::Mem,
     draw::{Cmd, DrawFrame, ScreenPos, TextureID},
     export_config, export_frame_logic,
     game::GameState,
@@ -8,13 +8,14 @@ use bang_core::{
 };
 
 pub fn frame_logic<'f>(
-    alloc: &mut Alloc<'f>,
+    mem: &mut Mem<'f>,
     input: &InputState,
     game_state: &mut GameState,
 ) -> DrawFrame<'f> {
+    let _ = mem.slice(&[1, 2, 3, 4]);
     let fr = game_state.frame as f32 / 10.0;
     if input.space.down() {
-        DrawFrame::debug_dummies(&[(1.0, fr), (-50.0, -50.0), (50.0, 50.0)], alloc)
+        DrawFrame::debug_dummies(&[(1.0, fr), (-50.0, -50.0), (50.0, 50.0)], mem)
     } else {
         let pos_bubu = [ScreenPos { x: 0.0, y: 0.0 }];
         let pos_toge = [
@@ -29,14 +30,14 @@ pub fn frame_logic<'f>(
             ScreenPos { x: 140.0, y: 0.0 },
         ];
         let pos_lima = [ScreenPos { x: -100.0, y: 30.0 }];
-        let bubu = Cmd::draw_squads(TextureID(1), pos_bubu.as_slice(), alloc);
-        let toge = Cmd::draw_squads(TextureID(2), pos_toge.as_slice(), alloc);
-        let lima = Cmd::draw_squads(TextureID(3), pos_lima.as_slice(), alloc);
-        let cmd_vec = alloc.vec();
+        let bubu = Cmd::draw_squads(TextureID(1), pos_bubu.as_slice(), mem);
+        let toge = Cmd::draw_squads(TextureID(2), pos_toge.as_slice(), mem);
+        let lima = Cmd::draw_squads(TextureID(3), pos_lima.as_slice(), mem);
+        let cmd_vec = mem.vec();
         cmd_vec.push(bubu);
         cmd_vec.push(toge);
         cmd_vec.push(lima);
-        DrawFrame::with_cmds(cmd_vec.as_slice(), alloc)
+        DrawFrame::with_cmds(cmd_vec.as_slice(), mem)
     }
 }
 

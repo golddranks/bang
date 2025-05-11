@@ -1,6 +1,6 @@
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 
-use crate::alloc::Alloc;
+use crate::alloc::Mem;
 
 /// # Safety
 /// This trait is safe to implement for types that don't have
@@ -56,7 +56,7 @@ pub enum Cmd<'f> {
 }
 
 impl<'f> Cmd<'f> {
-    pub fn draw_squads(texture: TextureID, pos: &[ScreenPos], alloc: &mut Alloc<'f>) -> Self {
+    pub fn draw_squads(texture: TextureID, pos: &[ScreenPos], alloc: &mut Mem<'f>) -> Self {
         let pos_vec = alloc.vec();
         for p in pos {
             pos_vec.push(*p);
@@ -79,14 +79,14 @@ pub static DRAW_FRAME_DUMMY: DrawFrame = DrawFrame {
 };
 
 impl<'f> DrawFrame<'f> {
-    pub fn with_cmds(cmds: &'f [Cmd], mem: &mut Alloc<'f>) -> Self {
+    pub fn with_cmds(cmds: &'f [Cmd], mem: &mut Mem<'f>) -> Self {
         DrawFrame {
             alloc_seq: mem.alloc_seq,
             cmds,
         }
     }
 
-    pub fn debug_dummies(dummies: &[(f32, f32)], mem: &mut Alloc<'f>) -> Self {
+    pub fn debug_dummies(dummies: &[(f32, f32)], mem: &mut Mem<'f>) -> Self {
         let mut pos_vec = Vec::new();
         for &(x, y) in dummies {
             pos_vec.push(ScreenPos { x, y });
@@ -103,7 +103,7 @@ mod tests {
     use arena::ArenaContainer;
 
     use crate::{
-        alloc::Alloc,
+        alloc::Mem,
         draw::{AsBytes, Cmd, DrawFrame},
     };
 
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn test_debug_dummies() {
         let mut arena_container = ArenaContainer::default();
-        let mut alloc = Alloc::new(arena_container.new_arena(1));
+        let mut alloc = Mem::new(arena_container.new_arena(1));
         let dummies = [
             (0.0, 0.0),
             (1.0, 1.0),

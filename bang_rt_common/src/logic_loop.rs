@@ -1,6 +1,6 @@
 use std::ops::Not;
 
-use bang_core::{Config, alloc::Alloc, game::GameState, input::InputState};
+use bang_core::{Config, alloc::Mem, game::GameState, input::InputState};
 
 use crate::{
     alloc::AllocManager, draw::DrawSender, end::Ender, input::InputConsumer, load::FrameLogic,
@@ -12,7 +12,7 @@ fn with_frame_lifetime<'f>(
     input: &InputState,
     game_state: &mut GameState,
     sender: &mut DrawSender,
-    alloc: &mut Alloc<'f>,
+    alloc: &mut Mem<'f>,
 ) {
     let draw_frame = frame_logic.do_frame(alloc, input, game_state);
     let draw_frame = alloc.val(draw_frame);

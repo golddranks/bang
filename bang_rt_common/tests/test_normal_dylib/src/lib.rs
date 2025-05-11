@@ -1,7 +1,7 @@
-use bang_core::{Config, alloc::Alloc, draw::DrawFrame, game::GameState, input::InputState};
+use bang_core::{Config, alloc::Mem, draw::DrawFrame, game::GameState, input::InputState};
 
 pub fn test_frame_logic_normal<'f>(
-    alloc: &mut Alloc<'f>,
+    alloc: &mut Mem<'f>,
     _: &InputState,
     _: &mut GameState,
 ) -> DrawFrame<'f> {

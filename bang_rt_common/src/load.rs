@@ -4,7 +4,7 @@ use std::{
 };
 
 use bang_core::{
-    Config, alloc::Alloc, config_sym_name, draw::DrawFrame, ffi::FrameLogicExternFn,
+    Config, alloc::Mem, config_sym_name, draw::DrawFrame, ffi::FrameLogicExternFn,
     frame_logic_sym_name, game::GameState, input::InputState,
 };
 
@@ -34,7 +34,7 @@ pub fn get_symbols(lib: &CStr) -> (FrameLogicExternFn, Config) {
 pub trait FrameLogic: Send {
     fn do_frame<'f>(
         &self,
-        alloc: &mut Alloc<'f>,
+        alloc: &mut Mem<'f>,
         input: &InputState,
         game_state: &mut GameState,
     ) -> DrawFrame<'f>;
@@ -43,7 +43,7 @@ pub trait FrameLogic: Send {
 impl FrameLogic for FrameLogicExternFn {
     fn do_frame<'f>(
         &self,
-        alloc: &mut Alloc<'f>,
+        alloc: &mut Mem<'f>,
         input: &InputState,
         game_state: &mut GameState,
     ) -> DrawFrame<'f> {
@@ -63,11 +63,11 @@ impl<F> InlinedFrameLogic<F> {
 
 impl<F> FrameLogic for InlinedFrameLogic<F>
 where
-    F: Send + for<'f> Fn(&mut Alloc<'f>, &InputState, &mut GameState) -> DrawFrame<'f>,
+    F: Send + for<'f> Fn(&mut Mem<'f>, &InputState, &mut GameState) -> DrawFrame<'f>,
 {
     fn do_frame<'f>(
         &self,
-        alloc: &mut Alloc<'f>,
+        alloc: &mut Mem<'f>,
         input: &InputState,
         game_state: &mut GameState,
     ) -> DrawFrame<'f> {
@@ -86,7 +86,7 @@ pub mod tests {
     #[test]
     fn test_inline() {
         let mut arenac = ArenaContainer::default();
-        let mut alloc = Alloc::new(arenac.new_arena(1));
+        let mut alloc = Mem::new(arenac.new_arena(1));
         let input_state = InputState::default();
         let mut game_state = GameState::default();
         let frame_logic = InlinedFrameLogic::new(test_frame_logic_normal);
@@ -98,7 +98,7 @@ pub mod tests {
     fn test_load() {
         let mut arenac = ArenaContainer::default();
         let (frame_logic, _config) = get_symbols(c"../target/tests/libtest_normal_dylib.dylib");
-        let mut alloc = Alloc::new(arenac.new_arena(1));
+        let mut alloc = Mem::new(arenac.new_arena(1));
         let input_state = InputState::default();
         let mut game_state = GameState::default();
         frame_logic.do_frame(&mut alloc, &input_state, &mut game_state);
