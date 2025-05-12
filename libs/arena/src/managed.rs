@@ -112,7 +112,14 @@ impl<T> Managed<T> {
     }
 
     pub fn reap_deferred_now(&mut self) {
+        self.reap_list.sort_unstable();
+        self.reap_list.dedup();
         for idx in self.reap_list.drain(..) {
+            // Safety: Only valid indices of currently live values are inserted to
+            // `reap_list`. Other methods don't insert anything. The list is drained
+            // only by `reap_deferred_now`, and possible duplicates are deduplicated,
+            // so drop and freeing procedure is called exactly once per value.
+            unsafe { self.store[idx as usize].assume_init_drop() };
             self.generations[idx as usize] += 1;
             self.free_list.push(idx);
         }
@@ -156,6 +163,8 @@ impl<T> Managed<T> {
         // Panic: documented in the docstring. Caller's responsibility.
         assert!(idx < self.store.len());
         if gener == self.generations[idx] {
+            // Safety: if the generation matches, the value is guaranteed to be
+            // in an initialized and valid state.
             Some(unsafe { self.store[idx].assume_init_ref() })
         } else {
             None
@@ -177,6 +186,8 @@ impl<T> Managed<T> {
         // Panic: documented in the docstring. Caller's responsibility.
         assert!(idx < self.store.len());
         if gener == self.generations[idx] {
+            // Safety: if the generation matches, the value is guaranteed to be
+            // in an initialized and valid state.
             Some(unsafe { self.store[idx].assume_init_mut() })
         } else {
             None
@@ -189,6 +200,18 @@ impl<T> Managed<T> {
             .get(idx)
             .map(|gener| gener & 1 == 0)
             .unwrap_or(false)
+    }
+}
+
+impl<T> Drop for Managed<T> {
+    fn drop(&mut self) {
+        for idx in 0..self.store.len() {
+            if self.is_idx_live(idx) {
+                // Safety: `is_idx_live` examines the generation, and guarantees
+                // the value is in an initialized and valid state.
+                unsafe { self.store[idx].assume_init_drop() };
+            }
+        }
     }
 }
 
@@ -249,5 +272,20 @@ mod tests {
             format!("{id:?}"),
             "Id(idx=3, gen=5, type=arena::managed::tests::test_id::Dummy)"
         );
+    }
+
+    #[test]
+    fn managed_drop_on_free() {
+        let mut managed = Managed::default();
+        let id = managed.alloc(String::from("Hello, World!"));
+        managed.defer_free(id);
+        managed.reap_deferred_now();
+    }
+
+    #[test]
+    fn managed_drop_on_container_drop() {
+        let mut managed = Managed::default();
+        let _ = managed.alloc(String::from("Hello, World!"));
+        drop(managed)
     }
 }
