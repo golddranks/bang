@@ -5,6 +5,7 @@ use std::{
     fs::{read_dir, write},
     io::{Read, Write, stdin, stdout},
     ops::Range,
+    path::Path,
 };
 
 use png::ColorType;
@@ -109,22 +110,36 @@ fn convert(input: impl Read) -> Vec<u8> {
     encoded_output
 }
 
+fn convert_file(path: &Path) {
+    let paltex_path = path.with_extension("paltex");
+    let fname = paltex_path.file_name().unwrap();
+    let input = std::fs::File::open(path).unwrap();
+    let encoded_output = convert(input);
+    eprintln!("Writing {fname:?}.");
+    write(fname, encoded_output).unwrap();
+}
+
 fn main() {
     if let Some(path) = args().nth(1) {
-        eprintln!("Looking for png files in {path}.");
+        let path = Path::new(&path);
         let target_ext = OsStr::new("png");
-        for path in read_dir(path).unwrap() {
-            let path = path.unwrap().path();
-            if let Some(ext) = path.extension()
-                && ext == target_ext
-            {
-                let paltex_path = path.with_extension("paltex");
-                let fname = paltex_path.file_name().unwrap();
-                let input = std::fs::File::open(path).unwrap();
-                let encoded_output = convert(input);
-                eprintln!("Writing {fname:?}.");
-                write(fname, encoded_output).unwrap();
+        if path.is_dir() {
+            eprintln!("Looking for png files in {:?}.", &path);
+            for path in read_dir(&path).unwrap_or_else(|e| {
+                panic!("Failed to read directory: {:?}: {}", &path, e);
+            }) {
+                let path = path.unwrap().path();
+                if let Some(ext) = path.extension()
+                    && ext == target_ext
+                {
+                    convert_file(&path);
+                }
             }
+        } else if path.is_file()
+            && let Some(ext) = path.extension()
+            && ext == target_ext
+        {
+            convert_file(&path);
         }
     } else {
         eprintln!("Converting input from stdin to stdout.");
