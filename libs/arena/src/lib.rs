@@ -1,4 +1,5 @@
 use std::{
+    fmt::Debug,
     marker::PhantomData,
     mem::{needs_drop, transmute},
     ptr::copy,
@@ -83,6 +84,18 @@ impl<'a> Drop for Arena<'a> {
     }
 }
 
+/// Short-lived arena implementation
+///
+/// Supports objects with aligments up to 16 bytes. This is the maximum
+/// natural alignment for all supported platforms.
+///
+/// # Panics
+///
+/// The allocation methods (`alloc_val`, `alloc_vec`, `alloc_slice`,
+/// `alloc_iter`, `alloc_val_ignore_drop`, `alloc_vec_ignore_drop`,
+/// `alloc_slice_ignore_drop`, `alloc_iter_ignore_drop`) panic if attempting to
+/// allocate a type with alignment that is not 1, 2, 4, 8, or 16. Attempting
+/// to do so is API misuse and on caller's responsibility.
 impl<'a> Arena<'a> {
     fn new() -> Self {
         Arena {
@@ -140,6 +153,7 @@ impl<'a> Arena<'a> {
             4 => &mut self.vec_align_4,
             8 => &mut self.vec_align_8,
             16 => &mut self.vec_align_16,
+            // Panics: API misuse; caller's responsibility
             _ => panic!("Unsupported alignment"),
         }
     }
@@ -151,51 +165,100 @@ impl<'a> Arena<'a> {
             4 => &mut self.val_align_4,
             8 => &mut self.val_align_8,
             16 => &mut self.val_align_16,
+            // Panics: API misuse; caller's responsibility
             _ => panic!("Unsupported alignment"),
         }
     }
 
-    pub fn allocate_vec<T>(&mut self) -> &'a mut Vec<T> {
+    pub fn alloc_vec<T>(&mut self) -> &'a mut Vec<T> {
+        // Panics: Static assert, so no runtime panics are possible
         const { assert!(!needs_drop::<T>()) };
-        self.allocate_vec_ignore_drop()
+        self.alloc_vec_ignore_drop()
     }
 
-    pub fn allocate_slice<T>(&mut self, slice: &[T]) -> &'a mut [T] {
+    pub fn alloc_slice<T>(&mut self, slice: &[T]) -> &'a mut [T] {
+        // Panics: Static assert, so no runtime panics are possible
         const { assert!(!needs_drop::<T>()) };
-        self.allocate_slice_ignore_drop(slice)
+        self.alloc_slice_ignore_drop(slice)
     }
 
-    pub fn allocate_val<T>(&mut self, val: T) -> &'a mut T {
+    pub fn alloc_val<T>(&mut self, val: T) -> &'a mut T {
+        // Panics: Static assert, so no runtime panics are possible
         const { assert!(!needs_drop::<T>()) };
-        self.allocate_val_ignore_drop(val)
+        self.alloc_val_ignore_drop(val)
     }
 
-    pub fn allocate_iter<T>(&mut self, iter: impl ExactSizeIterator<Item = T>) -> &'a mut [T] {
+    pub fn alloc_iter<T>(&mut self, iter: impl ExactSizeIterator<Item = T>) -> &'a mut [T] {
+        // Panics: Static assert, so no runtime panics are possible
         const { assert!(!needs_drop::<T>()) };
-        self.allocate_iter_ignore_drop(iter)
+        self.alloc_iter_ignore_drop(iter)
     }
 
-    pub fn allocate_iter_ignore_drop<T>(
+    pub fn alloc_iter_ignore_drop<T>(
         &mut self,
         iter: impl ExactSizeIterator<Item = T>,
     ) -> &'a mut [T] {
         let item_byte_size = size_of::<T>();
         let by_align = self.get_val_align(align_of::<T>());
+        // We can't trust this length, so measures for both it being too short
+        // or too long are taken below.
         let len = iter.len();
-        let erased_ptr = by_align.allocate_val(len * item_byte_size);
+        // Safety:
+        // - Valid size: The used `by_align` is matched to the alignment of `T`.
+        //   `T` size is always a multiple of that alignment per Rust's memory
+        //   layout guarantees, and the allocated size is calculated to be a
+        //   multiple of `T` size.
+        // - No aliasing: References borrowed out from this arena during the
+        //   past and future allocation sequences are ensured not to be live by
+        //   the lifetime constraints of the arena API.
+        let erased_ptr = unsafe { by_align.allocate_val(len * item_byte_size) };
         let start_typed_ptr = erased_ptr as *mut T;
         let mut typed_ptr = start_typed_ptr;
+        let mut written = 0;
         for val in iter.take(len) {
+            // Safety:
+            // `erased_ptr`, converted to `typed_ptr` has size and alignment
+            // that are ensured to be compatible with type `T` (size, by the
+            // implementation of `allocate_val`, and alignment, by allocating
+            // only values of the same alignment to the same alignment bucket).
+            // The backing allocation is ensured to be unaliazed by
+            // `allocate_val` and the lifetime constraints of the earlier and
+            // future borrows. It is originally stored as unassuming
+            // `MaybeUninit<_>`, and doesn't contain any live values.
+            // The allocated length corresponds to the iterator length, and a
+            // `take` iterator is created to ensure that the loop doesn't run
+            // over the allocated length.
             unsafe {
                 typed_ptr.write(val);
                 typed_ptr = typed_ptr.add(1);
             }
+            written += 1;
         }
 
-        unsafe { slice::from_raw_parts_mut(start_typed_ptr, len) }
+        if written < len {
+            let shrunk_by_bytes = (len - written) * item_byte_size;
+            // Safety:
+            // - No allocations between: There are no allocations between
+            //   this `shrink_val` call and the `allocate_val` call above.
+            // - Shrunk by valid size: `shrunk_by_bytes` is, by construction,
+            //   constrained to be always 0 <= `shrunk_by_bytes` <= size of the
+            //   last allocation, and always a multiple of the item size, and
+            //   thus also a multiple of the alignment.
+            // - No references: No references are created between the last
+            //   allocation and the shrink operation.
+            unsafe { by_align.shrink_val(erased_ptr, shrunk_by_bytes) };
+        }
+
+        // Safety: the slice is ensured to be of correct type `T` (valid memory
+        // layout and initialized values), unaliased, and the length is the
+        // same as the actual length produced by the iterator. The count of
+        // produced values is checked, and only the initialized part of the
+        // allocation is returned. (The uninitialized part is shrunk to fit by
+        // `shrink_val`.)
+        unsafe { slice::from_raw_parts_mut(start_typed_ptr, written) }
     }
 
-    pub fn allocate_vec_ignore_drop<T>(&mut self) -> &'a mut Vec<T> {
+    pub fn alloc_vec_ignore_drop<T>(&mut self) -> &'a mut Vec<T> {
         let n_size = const { size_of::<T>() / align_of::<T>() };
         let seq = self.alloc_seq;
         let by_align = self.get_vec_align(align_of::<T>());
@@ -220,10 +283,19 @@ impl<'a> Arena<'a> {
         typed
     }
 
-    pub fn allocate_slice_ignore_drop<T>(&mut self, slice: &[T]) -> &'a mut [T] {
+    pub fn alloc_slice_ignore_drop<T>(&mut self, slice: &[T]) -> &'a mut [T] {
         let byte_size = size_of_val(slice);
         let by_align = self.get_val_align(align_of::<T>());
-        let erased_ptr = by_align.allocate_val(byte_size);
+
+        // Safety:
+        // - Valid size: The used `by_align` is matched to the alignment of `T`.
+        //   `T` size is always a multiple of that alignment per Rust's memory
+        //   layout guarantees, and the allocated size is calculated to be a
+        //   multiple of `T` size.
+        // - No aliasing: References borrowed out from this arena during the
+        //   past and future allocation sequences are ensured not to be live by
+        //   the lifetime constraints of the arena API.
+        let erased_ptr = unsafe { by_align.allocate_val(byte_size) };
         let typed_ptr = erased_ptr as *mut T;
         // Safety: erased_ptr has size and alignment that is ensured to be
         // compatible with T. The memory is originally stored as MaybeUninit<_>,
@@ -235,10 +307,19 @@ impl<'a> Arena<'a> {
         }
     }
 
-    pub fn allocate_val_ignore_drop<T>(&mut self, val: T) -> &'a mut T {
+    pub fn alloc_val_ignore_drop<T>(&mut self, val: T) -> &'a mut T {
         let byte_size = size_of::<T>();
         let by_align = self.get_val_align(align_of::<T>());
-        let erased_ptr = by_align.allocate_val(byte_size);
+
+        // Safety:
+        // - Valid size: The used `by_align` is matched to the alignment of `T`.
+        //   `T` size is always a multiple of that alignment per Rust's memory
+        //   layout guarantees, and the allocated size is calculated to be a
+        //   multiple of `T` size.
+        // - No aliasing: References borrowed out from this arena during the
+        //   past and future allocation sequences are ensured not to be live by
+        //   the lifetime constraints of the arena API.
+        let erased_ptr = unsafe { by_align.allocate_val(byte_size) };
         let typed_ptr = erased_ptr as *mut T;
         // Safety: erased_ptr has size and alignment that is ensured to be
         // compatible with T. The memory is originally stored as MaybeUninit<_>,

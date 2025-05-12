@@ -15,15 +15,15 @@ impl<'f> Mem<'f> {
     }
 
     pub fn vec<T>(&mut self) -> &'f mut Vec<T> {
-        self.arena.allocate_vec()
+        self.arena.alloc_vec()
     }
 
     pub fn val<T>(&mut self, val: T) -> &'f mut T {
-        self.arena.allocate_val(val)
+        self.arena.alloc_val(val)
     }
 
     pub fn slice<T>(&mut self, slice: &[T]) -> &'f mut [T] {
-        self.arena.allocate_slice(slice)
+        self.arena.alloc_slice(slice)
     }
 
     pub fn from_iter<T, I>(&mut self, iter: I) -> &'f mut [T]
@@ -31,7 +31,7 @@ impl<'f> Mem<'f> {
         I: IntoIterator<Item = T>,
         I::IntoIter: ExactSizeIterator,
     {
-        self.arena.allocate_iter(iter.into_iter())
+        self.arena.alloc_iter(iter.into_iter())
     }
 }
 

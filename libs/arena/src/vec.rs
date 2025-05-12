@@ -42,13 +42,20 @@ impl VecChunk {
     ///
     /// # Safety
     ///
-    /// Caller must ensure that no other references to the pointed slot
-    /// exist, and no other such references are created until the
-    /// pointer and possible references derived from it are no longer used.
+    /// - No aliasing: Caller must ensure that no other references to the
+    ///   pointed slot exist, and no other such references are created until
+    ///   the pointer and possible references derived from it are no longer used.
+    /// - In bounds: Caller must also ensure that the index is in bounds.
     unsafe fn get(&mut self, idx: usize) -> &mut Vec<Erased> {
-        assert!(idx < self.cap());
+        // Panics: this function is called only internally, and the invariant
+        // of index being less than capacity is always upheld. In case it's not,
+        // that's a bug.
+        debug_assert!(idx < self.cap());
         let first_slot_ptr = (&raw mut *self.0) as *mut MaybeUninit<Vec<Erased>>;
-        // Safety: idx must be less than the capacity (asserted above)
+        // Safety: idx must be less than the capacity (debug-asserted above but
+        // ultimately caller's responsibility, as documented), and
+        // there must be no other aliasing references to the slot. (Caller's
+        // responsibility, as documented)
         let slot = unsafe { &mut *first_slot_ptr.add(idx) };
         // Safety: slot must be initialized (happens on chunk allocation)
         unsafe { slot.assume_init_mut() }
@@ -119,10 +126,13 @@ impl BySize {
         }
 
         let chunk = &mut self.chunks[self.last];
-        // Safety: we increment last_used_count immediately after getting the
-        // reference so future calls won't create aliasing references.
-        // When re-using the Vec, lifetime restrictions on the Area ensure
-        // that earlier references are dead.
+        // Safety:
+        // - No aliasing: we increment last_used_count immediately after getting
+        //   the reference so future calls won't create aliasing references.
+        //   When re-using the Vec, lifetime restrictions on the Area ensure
+        //   that earlier references are dead.
+        // - In bounds: `last_used_count` is checked to always be in bounds by
+        //   the `capacity_full()` method.
         let slot = unsafe { chunk.get(self.last_used_count) };
         self.last_used_count += 1;
         slot
@@ -154,8 +164,11 @@ impl ByAlign {
                     let erased = unsafe { slot.assume_init_mut() };
                     if erased.capacity() > 0 {
                         let alloc_size = element_size * erased.capacity();
-                        let layout =
-                            Layout::from_size_align(alloc_size, align).expect("UNREACHABLE");
+                        // UNREACHABLE: The align sizes 1, 2, 4, 8, 16 are always valid
+                        // and alloc_size is calculated from the actually allocated size
+                        // so the layout is always valid
+                        let layout = Layout::from_size_align(alloc_size, align)
+                            .expect("UNREACHABLE: always valid");
                         let ptr = erased.as_mut_ptr() as *mut u8;
                         unsafe { dealloc(ptr, layout) };
                     }

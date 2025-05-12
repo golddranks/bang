@@ -9,14 +9,14 @@ fn test_no_allocation() {
 #[test]
 fn test_empty_vec_allocation() {
     let mut arena = Arena::new();
-    let _vec = arena.allocate_vec::<u32>();
+    let _vec = arena.alloc_vec::<u32>();
 }
 
 #[test]
 fn test_basic_vec_allocation() {
     let mut arena = Arena::new();
 
-    let vec = arena.allocate_vec::<u32>();
+    let vec = arena.alloc_vec::<u32>();
     assert!(vec.is_empty());
 
     vec.push(42);
@@ -31,8 +31,8 @@ fn test_basic_vec_allocation() {
 fn test_basic_val_allocation() {
     let mut arena = Arena::new();
 
-    let val1 = arena.allocate_val(42u32);
-    let val2 = arena.allocate_val(100u32);
+    let val1 = arena.alloc_val(42u32);
+    let val2 = arena.alloc_val(100u32);
 
     assert_eq!(*val1, 42);
     assert_eq!(*val2, 100);
@@ -46,8 +46,8 @@ fn test_basic_val_allocation() {
 fn test_same_vec_layout() {
     let mut arena = Arena::new();
 
-    let vec1 = arena.allocate_vec::<u8>();
-    let vec2 = arena.allocate_vec::<u8>();
+    let vec1 = arena.alloc_vec::<u8>();
+    let vec2 = arena.alloc_vec::<u8>();
 
     vec1.extend_from_slice(&[1, 2, 3]);
     vec2.extend_from_slice(&[4, 5, 6]);
@@ -60,11 +60,11 @@ fn test_same_vec_layout() {
 fn test_multiple_vec_allocations() {
     let mut arena = Arena::new();
 
-    let vec1 = arena.allocate_vec::<u8>();
-    let vec2 = arena.allocate_vec::<u16>();
-    let vec3 = arena.allocate_vec::<u32>();
-    let vec4 = arena.allocate_vec::<u64>();
-    let vec5 = arena.allocate_vec::<u8>();
+    let vec1 = arena.alloc_vec::<u8>();
+    let vec2 = arena.alloc_vec::<u16>();
+    let vec3 = arena.alloc_vec::<u32>();
+    let vec4 = arena.alloc_vec::<u64>();
+    let vec5 = arena.alloc_vec::<u8>();
 
     vec1.extend_from_slice(&[1, 2, 3]);
     vec2.extend_from_slice(&[10, 20, 30]);
@@ -83,12 +83,12 @@ fn test_multiple_vec_allocations() {
 fn test_different_vec_alignments() {
     let mut arena = Arena::new();
 
-    let vec1 = arena.allocate_vec::<u8>();
-    let vec2 = arena.allocate_vec::<u16>();
-    let vec4 = arena.allocate_vec::<u32>();
-    let vec8 = arena.allocate_vec::<u64>();
-    let vec16 = arena.allocate_vec::<u128>();
-    let vec8_8 = arena.allocate_vec::<[u64; 2]>();
+    let vec1 = arena.alloc_vec::<u8>();
+    let vec2 = arena.alloc_vec::<u16>();
+    let vec4 = arena.alloc_vec::<u32>();
+    let vec8 = arena.alloc_vec::<u64>();
+    let vec16 = arena.alloc_vec::<u128>();
+    let vec8_8 = arena.alloc_vec::<[u64; 2]>();
 
     vec1.push(1);
     vec2.push(2);
@@ -109,11 +109,11 @@ fn test_different_vec_alignments() {
 fn test_different_val_alignments() {
     let mut arena = Arena::new();
 
-    let val1 = arena.allocate_val(0x42_u8);
-    let val2 = arena.allocate_val(0x4243_u16);
-    let val3 = arena.allocate_val(0x42434445_u32);
-    let val4 = arena.allocate_val(0x4243444546474849_u64);
-    let val5 = arena.allocate_val(0x42434445464748495051525354555657_u128);
+    let val1 = arena.alloc_val(0x42_u8);
+    let val2 = arena.alloc_val(0x4243_u16);
+    let val3 = arena.alloc_val(0x42434445_u32);
+    let val4 = arena.alloc_val(0x4243444546474849_u64);
+    let val5 = arena.alloc_val(0x42434445464748495051525354555657_u128);
 
     assert_eq!(*val1, 0x42u8);
     assert_eq!(*val2, 0x4243u16);
@@ -150,12 +150,12 @@ fn test_vec_reset() {
     let mut alloc = ArenaContainer::default();
     let arena = alloc.new_arena(1);
 
-    let vec = arena.allocate_vec::<u32>();
+    let vec = arena.alloc_vec::<u32>();
     vec.push(42);
     assert_eq!(vec.len(), 1);
 
     let arena = alloc.new_arena(2);
-    let vec = arena.allocate_vec::<u32>();
+    let vec = arena.alloc_vec::<u32>();
     assert!(vec.is_empty());
 }
 
@@ -164,15 +164,15 @@ fn test_val_reset() {
     let mut alloc = ArenaContainer::default();
     let arena = alloc.new_arena(1);
 
-    let val1 = arena.allocate_val(42u32);
-    let val2 = arena.allocate_val(43u64);
+    let val1 = arena.alloc_val(42u32);
+    let val2 = arena.alloc_val(43u64);
     assert_eq!(*val1, 42u32);
     assert_eq!(*val2, 43u64);
 
     let arena = alloc.new_arena(2);
 
-    let new_val1 = arena.allocate_val(100u32);
-    let new_val2 = arena.allocate_val(200u64);
+    let new_val1 = arena.alloc_val(100u32);
+    let new_val2 = arena.alloc_val(200u64);
     assert_eq!(*new_val1, 100u32);
     assert_eq!(*new_val2, 200u64);
 }
@@ -181,7 +181,7 @@ fn test_val_reset() {
 fn test_large_vec_allocation() {
     let mut arena = Arena::new();
 
-    let vec = arena.allocate_vec::<u32>();
+    let vec = arena.alloc_vec::<u32>();
     for i in 0..1000 {
         vec.push(i);
     }
@@ -199,7 +199,7 @@ fn test_large_vec_allocation() {
 fn test_large_val_allocation() {
     let mut arena = Arena::new();
 
-    let large_value = arena.allocate_val([42u64; 32]);
+    let large_value = arena.alloc_val([42u64; 32]);
 
     assert_eq!(large_value[0], 42);
     assert_eq!(large_value[31], 42);
@@ -210,7 +210,7 @@ fn test_large_val_allocation() {
     assert_eq!(large_value[10], 100);
     assert_eq!(large_value[20], 200);
 
-    let large_value2 = arena.allocate_val([84u64; 32]);
+    let large_value2 = arena.alloc_val([84u64; 32]);
 
     assert_eq!(large_value[10], 100);
     assert_eq!(large_value[20], 200);
@@ -234,10 +234,10 @@ fn test_large_val_allocation() {
 fn test_mixed_vec_and_val_allocation() {
     let mut arena = Arena::new();
 
-    let vec1 = arena.allocate_vec::<u32>();
-    let val1 = arena.allocate_val(42u64);
-    let vec2 = arena.allocate_vec::<u8>();
-    let val2 = arena.allocate_val(43u16);
+    let vec1 = arena.alloc_vec::<u32>();
+    let val1 = arena.alloc_val(42u64);
+    let vec2 = arena.alloc_vec::<u8>();
+    let val2 = arena.alloc_val(43u16);
 
     vec1.push(100);
     vec1.push(200);
@@ -273,8 +273,8 @@ fn test_mixed_vec_and_val_allocation() {
 fn test_zero_sized_val() {
     let mut arena = Arena::new();
 
-    let empty1 = arena.allocate_val(());
-    let empty2 = arena.allocate_val(());
+    let empty1 = arena.alloc_val(());
+    let empty2 = arena.alloc_val(());
 
     assert!(addr_eq(empty1, empty2));
 }
@@ -284,7 +284,7 @@ fn test_zero_sized_vec() {
     let mut alloc = ArenaContainer::default();
     let arena = alloc.new_arena(0);
 
-    let vec = arena.allocate_vec::<()>();
+    let vec = arena.alloc_vec::<()>();
 
     assert_eq!(vec.capacity(), usize::MAX);
     assert_eq!(vec.len(), 0);
@@ -305,9 +305,9 @@ fn test_val_memory_usage() {
     assert_eq!(empty_usage.capacity_bytes, 80);
 
     // Allocate small values
-    let _val1 = arena.allocate_val(1u8);
-    let _val2 = arena.allocate_val(2u16);
-    let _val3 = arena.allocate_val(3u32);
+    let _val1 = arena.alloc_val(1u8);
+    let _val2 = arena.alloc_val(2u16);
+    let _val3 = arena.alloc_val(3u32);
 
     // Check memory usage after small allocations
     let small_alloc_usage = arena.memory_usage();
@@ -319,7 +319,7 @@ fn test_val_memory_usage() {
     assert!(small_alloc_usage.total_bytes() == empty_usage.total_bytes());
 
     // Allocate a large array
-    let _large_val = arena.allocate_val([42u64; 64]); // 512 bytes
+    let _large_val = arena.alloc_val([42u64; 64]); // 512 bytes
 
     // Check memory usage after large allocation
     let large_alloc_usage = arena.memory_usage();
@@ -335,8 +335,8 @@ fn test_val_memory_usage() {
     let arena1 = alloc.new_arena(0);
 
     // Make some allocations
-    let _v1 = arena1.allocate_val(100u32);
-    let _v2 = arena1.allocate_val(200u64);
+    let _v1 = arena1.alloc_val(100u32);
+    let _v2 = arena1.alloc_val(200u64);
 
     let usage1 = alloc.memory_usage();
     let expected_content1 = size_of::<u32>() + size_of::<u64>();
@@ -346,7 +346,7 @@ fn test_val_memory_usage() {
     let arena2 = alloc.new_arena(1);
 
     // Allocate again
-    let _v3 = arena2.allocate_val(300u32);
+    let _v3 = arena2.alloc_val(300u32);
 
     let usage2 = alloc.memory_usage();
     let expected_content2 = size_of::<u32>();
@@ -363,7 +363,7 @@ fn test_multiple_vectors_same_type() {
 
     let vectors: Vec<_> = (0..10)
         .map(|i| {
-            let vec = arena.allocate_vec::<u32>();
+            let vec = arena.alloc_vec::<u32>();
             vec.push(i);
             vec
         })
@@ -381,8 +381,8 @@ fn test_vector_capacity_reuse() {
     let arena = alloc.new_arena(0);
 
     // Grow u32 vecs (4-byte alignment)
-    let vec_u32_a = arena.allocate_vec::<u32>();
-    let vec_u32_b = arena.allocate_vec::<u32>();
+    let vec_u32_a = arena.alloc_vec::<u32>();
+    let vec_u32_b = arena.alloc_vec::<u32>();
     for i in 0..1000 {
         vec_u32_a.push(i);
     }
@@ -391,8 +391,8 @@ fn test_vector_capacity_reuse() {
     }
 
     let arena = alloc.new_arena(1);
-    let vec_u32 = arena.allocate_vec::<u32>();
-    let vec_f32 = arena.allocate_vec::<f32>(); // f32 also has 4-byte alignment
+    let vec_u32 = arena.alloc_vec::<u32>();
+    let vec_f32 = arena.alloc_vec::<f32>(); // f32 also has 4-byte alignment
     assert!(
         vec_u32.capacity() >= 1000,
         "u32 vector capacity should be reused"
@@ -412,7 +412,7 @@ fn test_unsupported_alignment_vec() {
     let mut alloc = ArenaContainer::default();
     let arena = alloc.new_arena(0);
 
-    let _ = arena.allocate_vec::<Test>();
+    let _ = arena.alloc_vec::<Test>();
 }
 
 #[test]
@@ -421,7 +421,7 @@ fn test_unsupported_alignment_val() {
     let mut alloc = ArenaContainer::default();
     let arena = alloc.new_arena(0);
 
-    let _ = arena.allocate_val(Test);
+    let _ = arena.alloc_val(Test);
 }
 
 #[test]
@@ -433,12 +433,12 @@ fn test_vec_memory_usage() {
     assert_eq!(initial_usage.content_bytes, 0);
     assert_eq!(initial_usage.capacity_bytes, 5 * 4 * 4);
 
-    let vec1 = arena.allocate_vec::<u8>();
+    let vec1 = arena.alloc_vec::<u8>();
     vec1.extend_from_slice(&[1, 2, 3, 4, 5]);
-    let _vec1_2 = arena.allocate_vec::<u8>();
-    let _vec2 = arena.allocate_vec::<u32>();
-    let _vec3 = arena.allocate_vec::<u64>();
-    let _vec3_2 = arena.allocate_vec::<(u64, u64)>();
+    let _vec1_2 = arena.alloc_vec::<u8>();
+    let _vec2 = arena.alloc_vec::<u32>();
+    let _vec3 = arena.alloc_vec::<u64>();
+    let _vec3_2 = arena.alloc_vec::<(u64, u64)>();
 
     let after_alloc = arena.memory_usage();
     assert!(after_alloc.capacity_bytes > 0);
@@ -446,9 +446,9 @@ fn test_vec_memory_usage() {
     assert_eq!(after_alloc.content_bytes, 5);
 
     let arena = alloc.new_arena(1);
-    let vec1 = arena.allocate_vec::<u8>();
-    let vec2 = arena.allocate_vec::<u32>();
-    let vec3 = arena.allocate_vec::<u64>();
+    let vec1 = arena.alloc_vec::<u8>();
+    let vec2 = arena.alloc_vec::<u32>();
+    let vec3 = arena.alloc_vec::<u64>();
 
     vec1.extend_from_slice(&[1, 2, 3, 4, 5]);
     vec2.extend_from_slice(&[10, 20, 30]);
@@ -480,7 +480,7 @@ fn test_vec_memory_usage() {
     );
 
     for _ in 0..10 {
-        let vec = arena.allocate_vec::<u32>();
+        let vec = arena.alloc_vec::<u32>();
         for _ in 0..100 {
             vec.push(42);
         }
@@ -503,8 +503,8 @@ fn test_chunk_consolidation() {
     let mut original_addresses_u64 = Vec::new();
 
     for _ in 0..100 {
-        let vec_u32 = arena.allocate_vec::<u32>();
-        let vec_u64 = arena.allocate_vec::<u64>();
+        let vec_u32 = arena.alloc_vec::<u32>();
+        let vec_u64 = arena.alloc_vec::<u64>();
 
         original_addresses_u32.push(vec_u32 as *mut _);
         original_addresses_u64.push(vec_u64 as *mut _);
@@ -523,8 +523,8 @@ fn test_chunk_consolidation() {
     let mut first_addresses_u64 = Vec::new();
 
     for _ in 0..100 {
-        let vec_u32 = arena.allocate_vec::<u32>();
-        let vec_u64 = arena.allocate_vec::<u64>();
+        let vec_u32 = arena.alloc_vec::<u32>();
+        let vec_u64 = arena.alloc_vec::<u64>();
 
         // Verify capacities are preserved
         assert!(vec_u32.capacity() >= 20);
@@ -550,8 +550,8 @@ fn test_chunk_consolidation() {
 
     // Verify addresses remain stable after second consolidation
     for i in 0..100 {
-        let vec_u32 = arena.allocate_vec::<u32>();
-        let vec_u64 = arena.allocate_vec::<u64>();
+        let vec_u32 = arena.alloc_vec::<u32>();
+        let vec_u64 = arena.alloc_vec::<u64>();
 
         // Verify capacities are still preserved
         assert!(vec_u32.capacity() >= 20);
@@ -573,25 +573,25 @@ fn test_chunk_consolidation() {
 fn test_allocate_ignoring_drop() {
     let mut alloc = ArenaContainer::default();
     let arena = alloc.new_arena(1);
-    let _ = arena.allocate_val_ignore_drop(String::from("Hello, World!"));
-    let vec = arena.allocate_vec_ignore_drop();
+    let _ = arena.alloc_val_ignore_drop(String::from("Hello, World!"));
+    let vec = arena.alloc_vec_ignore_drop();
     vec.push(String::from("Hello, World 2!"));
-    let _ = arena.allocate_slice_ignore_drop(&[String::from("Hello, World 3!")]);
+    let _ = arena.alloc_slice_ignore_drop(&[String::from("Hello, World 3!")]);
 }
 
 #[test]
 fn test_allocate_slice() {
     let mut alloc = ArenaContainer::default();
     let arena = alloc.new_arena(1);
-    let slice1 = arena.allocate_slice(&[1, 2, 3]);
+    let slice1 = arena.alloc_slice(&[1, 2, 3]);
     assert_eq!(slice1, &[1, 2, 3]);
     slice1[1] = 99;
     assert_eq!(slice1, &[1, 99, 3]);
-    let slice2 = arena.allocate_slice(&[4, 5, 6, 7]);
-    let val = arena.allocate_val(100);
-    let slice3 = arena.allocate_slice::<u32>(&[]);
-    let slice4 = arena.allocate_slice(&[1.0_f32, 2.0, 3.0]);
-    let slice5 = arena.allocate_slice(&[4.0_f64, 5.0, 6.0]);
+    let slice2 = arena.alloc_slice(&[4, 5, 6, 7]);
+    let val = arena.alloc_val(100);
+    let slice3 = arena.alloc_slice::<u32>(&[]);
+    let slice4 = arena.alloc_slice(&[1.0_f32, 2.0, 3.0]);
+    let slice5 = arena.alloc_slice(&[4.0_f64, 5.0, 6.0]);
     assert_eq!(slice1, &[1, 99, 3]);
     assert_eq!(slice2, &[4, 5, 6, 7]);
     assert_eq!(*val, 100);
@@ -608,13 +608,76 @@ fn test_allocate_slice() {
 fn test_from_iter() {
     let mut alloc = ArenaContainer::default();
     let arena = alloc.new_arena(1);
-    let a = arena.allocate_iter([(0, 0)].into_iter());
-    let b = arena.allocate_iter([(1, 1), (2, 2), (3, 3)].into_iter());
-    let c = arena.allocate_iter([(4, 4)].into_iter());
+    let a = arena.alloc_iter([(0, 0)].into_iter());
+    let b = arena.alloc_iter([(1, 1), (2, 2), (3, 3)].into_iter());
+    let c = arena.alloc_iter([(4, 4)].into_iter());
 
     assert_eq!(a, &[(0, 0)]);
     assert_eq!(b, &[(1, 1), (2, 2), (3, 3)]);
     assert_eq!(c, &[(4, 4)]);
+}
+
+#[test]
+fn test_from_faulty_iter() {
+    struct TooLongIterator(Vec<u32>);
+    struct TooShortIterator(Vec<u32>);
+    struct Filler(Vec<u32>);
+    impl Iterator for TooLongIterator {
+        type Item = u32;
+        fn next(&mut self) -> Option<Self::Item> {
+            self.0.pop()
+        }
+    }
+    impl ExactSizeIterator for TooLongIterator {
+        fn len(&self) -> usize {
+            1
+        }
+    }
+    impl Iterator for TooShortIterator {
+        type Item = u32;
+        fn next(&mut self) -> Option<Self::Item> {
+            self.0.pop()
+        }
+    }
+    impl ExactSizeIterator for TooShortIterator {
+        fn len(&self) -> usize {
+            100
+        }
+    }
+    impl Iterator for Filler {
+        type Item = u32;
+        fn next(&mut self) -> Option<Self::Item> {
+            self.0.pop()
+        }
+    }
+    impl ExactSizeIterator for Filler {
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+    }
+
+    let too_long = TooLongIterator(vec![3, 2, 1]);
+    let too_short = TooShortIterator(vec![6, 5, 4]);
+    let filler = Filler(vec![7; 97]);
+
+    let mut alloc = ArenaContainer::default();
+    let arena = alloc.new_arena(1);
+
+    let a = arena.alloc_iter(too_long);
+    assert_eq!(a, &[1]);
+
+    let usage_before = arena.memory_usage();
+    assert_eq!(usage_before.content_bytes, 1 * size_of::<u32>());
+    let b = arena.alloc_iter(too_short);
+    assert_eq!(b, &[4, 5, 6]);
+    let usage_after = arena.memory_usage();
+    assert_eq!(usage_after.content_bytes, 4 * size_of::<u32>());
+    let reserved = 100 * size_of::<u32>();
+    assert!(usage_before.capacity_bytes + reserved <= usage_after.capacity_bytes);
+    let c = arena.alloc_iter(filler);
+    assert_eq!(c.len(), 97);
+    let usage_last = arena.memory_usage();
+    assert!(usage_after.capacity_bytes == usage_last.capacity_bytes);
 }
 
 /// Test: getting memory usage invalidates the arena

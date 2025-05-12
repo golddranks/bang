@@ -65,10 +65,16 @@ impl<T> Id<T> {
         }
     }
 
+    pub fn idx(self) -> usize {
+        (self.id >> 32) as usize
+    }
+
+    pub fn gener(self) -> u32 {
+        (self.id & 0x0000_0000_FFFF_FFFF) as u32
+    }
+
     pub fn parts(self) -> (usize, u32) {
-        let idx = (self.id >> 32) as usize;
-        let gener = (self.id & 0x0000_0000_FFFF_FFFF) as u32;
-        (idx, gener)
+        (self.idx(), self.gener())
     }
 }
 
@@ -89,7 +95,12 @@ impl<T> Managed<T> {
             self.generations.push(0);
             (idx, 0)
         } else {
-            let idx = self.free_list.pop().unwrap() as usize;
+            // UNREACHABLE: self.free_list was checked not to be empty in the
+            // if condition that led to this else branch
+            let idx = self
+                .free_list
+                .pop()
+                .expect("UNREACHABLE: checked not to be empty") as usize;
             let gener = &mut self.generations[idx];
             *gener += 1;
             self.store[idx] = MaybeUninit::new(val);
@@ -98,16 +109,27 @@ impl<T> Managed<T> {
         Id::new(idx, gener)
     }
 
-    pub fn reap_deferred(&mut self) {
+    pub fn reap_deferred_now(&mut self) {
         for idx in self.reap_list.drain(..) {
             self.generations[idx as usize] += 1;
             self.free_list.push(idx);
         }
     }
 
+    /// Marks the value associated with the given ID to be freed next time
+    /// `reap_deferred_now` is called.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the ID points to an invalid index.
+    /// If you use an ID retrieved from this arena, you will never encounter
+    /// this case, but cross-using ID's between two separate arenas is a bug
+    /// and may panic. This is considered API misuse and is on caller's
+    /// responsibility.
     pub fn defer_free(&mut self, id: Id<T>) -> bool {
         let (idx, gener) = id.parts();
-        assert!(idx < self.store.len());
+        // Panic: documented in the docstring. Caller's responsibility.
+        assert!(idx < self.generations.len());
         if gener < self.generations[idx] {
             eprintln!("Warning: trying to free already freed entity {:?}", id);
             false
@@ -117,8 +139,19 @@ impl<T> Managed<T> {
         }
     }
 
+    /// Retrieves a reference to the value associated with the given ID.
+    /// Returns `None` if the value has been freed.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the ID points to an invalid index.
+    /// If you use an ID retrieved from this arena, you will never encounter
+    /// this case, but cross-using ID's between two separate arenas is a bug
+    /// and may panic. This is considered API misuse and is on caller's
+    /// responsibility.
     pub fn get(&self, id: Id<T>) -> Option<&T> {
         let (idx, gener) = id.parts();
+        // Panic: documented in the docstring. Caller's responsibility.
         assert!(idx < self.store.len());
         if gener == self.generations[idx] {
             Some(unsafe { self.store[idx].assume_init_ref() })
@@ -127,14 +160,33 @@ impl<T> Managed<T> {
         }
     }
 
+    /// Retrieves a mutable reference to the value associated with the given ID.
+    /// Returns `None` if the value has been freed.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the ID points to an invalid index.
+    /// If you use an ID retrieved from this arena, you will never encounter
+    /// this case, but cross-using ID's between two separate arenas is a bug
+    /// and may panic. This is considered API misuse and is on caller's
+    /// responsibility.
     pub fn get_mut(&mut self, id: Id<T>) -> Option<&mut T> {
         let (idx, gener) = id.parts();
+        // Panic: documented in the docstring. Caller's responsibility.
         assert!(idx < self.store.len());
         if gener == self.generations[idx] {
             Some(unsafe { self.store[idx].assume_init_mut() })
         } else {
             None
         }
+    }
+
+    /// Checks if given index contains a valid, living object.
+    pub fn is_idx_live(&self, idx: usize) -> bool {
+        self.generations
+            .get(idx)
+            .map(|gener| gener & 1 == 0)
+            .unwrap_or(false)
     }
 }
 
@@ -150,18 +202,31 @@ mod tests {
     fn test_managed() {
         let mut managed = Managed::new();
 
+        assert_eq!(managed.is_idx_live(0), false);
+        assert_eq!(managed.is_idx_live(1), false);
+        assert_eq!(managed.is_idx_live(2), false);
         let id = managed.alloc(5);
+        assert_eq!(managed.is_idx_live(id.idx()), true);
         assert_eq!(managed.get(id), Some(&5));
         assert_eq!(managed.get_mut(id), Some(&mut 5));
         assert_eq!(managed.defer_free(id), true);
         assert_eq!(managed.get(id), Some(&5));
-        managed.reap_deferred();
+        assert_eq!(managed.is_idx_live(id.idx()), true);
+        managed.reap_deferred_now();
+        assert_eq!(managed.is_idx_live(id.idx()), false);
         assert_eq!(managed.defer_free(id), false);
         assert_eq!(managed.get(id), None);
         assert_eq!(managed.get_mut(id), None);
         let id2 = managed.alloc(6);
+        let id3 = managed.alloc(7);
+        assert_eq!(managed.is_idx_live(id.idx()), true); // Because the slot is being reused
+        assert_eq!(managed.is_idx_live(id2.idx()), true);
+        assert_eq!(managed.is_idx_live(id3.idx()), true);
         assert_eq!(managed.get(id2), Some(&6));
         assert_ne!(id, id2);
+        assert_eq!(managed.is_idx_live(0), true);
+        assert_eq!(managed.is_idx_live(1), true);
+        assert_eq!(managed.is_idx_live(2), false);
     }
 
     #[test]
