@@ -96,7 +96,7 @@ impl<'f> DrawFrame<'f> {
 
 #[cfg(test)]
 mod tests {
-    use arena::ArenaContainer;
+    use arena::Arena;
 
     use crate::{
         alloc::Mem,
@@ -107,8 +107,8 @@ mod tests {
 
     #[test]
     fn test_debug_dummies() {
-        let mut arena_container = ArenaContainer::default();
-        let mut alloc = Mem::new(arena_container.new_arena(1));
+        let mut arena_container = Arena::default();
+        let mut alloc = Mem::new(arena_container.fresh_arena(1));
         let dummies = [
             (0.0, 0.0),
             (1.0, 1.0),

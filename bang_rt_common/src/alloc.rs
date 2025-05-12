@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use arena::ArenaContainer;
+use arena::Arena;
 use bang_core::alloc::Mem;
 
 #[derive(Debug)]
@@ -67,8 +67,8 @@ impl<'l> AllocCleanup<'l> {
 pub struct AllocManager<'l> {
     alloc_seq: usize,
     shared: &'l SharedAllocState,
-    free_pool: Vec<ArenaContainer>,
-    in_use: VecDeque<ArenaContainer>,
+    free_pool: Vec<Arena>,
+    in_use: VecDeque<Arena>,
 }
 
 pub fn make_alloc_tools<'l>(
@@ -119,10 +119,10 @@ impl<'l> AllocManager<'l> {
         let arena_container = self.free_pool.pop().unwrap_or_default();
         self.alloc_seq += 1;
         self.in_use.push_back(arena_container);
-        let arena_container = self.in_use.back_mut().expect("UNREACHABLE");
+        let arena = self.in_use.back_mut().expect("UNREACHABLE");
         Mem {
             alloc_seq: self.alloc_seq,
-            arena: arena_container.new_arena(self.alloc_seq),
+            arena: arena.fresh_arena(self.alloc_seq),
         }
     }
 }

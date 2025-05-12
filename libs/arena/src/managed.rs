@@ -78,8 +78,8 @@ impl<T> Id<T> {
     }
 }
 
-impl<T> Managed<T> {
-    pub fn new() -> Self {
+impl<T> Default for Managed<T> {
+    fn default() -> Self {
         Self {
             store: Vec::new(),
             generations: Vec::new(),
@@ -87,7 +87,9 @@ impl<T> Managed<T> {
             reap_list: Vec::new(),
         }
     }
+}
 
+impl<T> Managed<T> {
     pub fn alloc(&mut self, val: T) -> Id<T> {
         let (idx, gener) = if self.free_list.is_empty() {
             let idx = self.store.len();
@@ -131,7 +133,7 @@ impl<T> Managed<T> {
         // Panic: documented in the docstring. Caller's responsibility.
         assert!(idx < self.generations.len());
         if gener < self.generations[idx] {
-            eprintln!("Warning: trying to free already freed entity {:?}", id);
+            eprintln!("Warning: trying to free already freed entity {id:?}");
             false
         } else {
             self.reap_list.push(idx as u32);
@@ -200,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_managed() {
-        let mut managed = Managed::new();
+        let mut managed = Managed::default();
 
         assert_eq!(managed.is_idx_live(0), false);
         assert_eq!(managed.is_idx_live(1), false);

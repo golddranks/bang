@@ -151,15 +151,13 @@ impl ByAlign {
     ///   part.
     pub(crate) unsafe fn shrink_val(&mut self, last_alloc_ptr: *mut ErasedMin, by: usize) {
         // Check that the pointer is within the bounds of the last chunk,
-        // and by is less than the allocation
+        // and `by` is less than the allocation size
         #[cfg(debug_assertions)]
         {
-            debug_assert!(self.last_used_bytes >= by);
             let start_addr = self.chunks[self.last].0.as_ptr().addr();
             let end_addr = start_addr + self.last_used_bytes;
-            debug_assert!(start_addr <= last_alloc_ptr.addr() && last_alloc_ptr.addr() <= end_addr);
-            dbg!(last_alloc_ptr.addr(), start_addr, end_addr, by);
-            debug_assert!(end_addr - last_alloc_ptr.addr() >= by);
+            debug_assert!(start_addr <= last_alloc_ptr.addr());
+            debug_assert!(last_alloc_ptr.addr() <= end_addr - by);
         }
         self.last_used_bytes -= by;
     }

@@ -1,13 +1,13 @@
-use arena::Arena;
+use arena::ArenaGuard;
 
 #[repr(C)]
 pub struct Mem<'frame> {
     pub alloc_seq: usize,
-    pub arena: &'frame mut Arena<'frame>,
+    pub arena: &'frame mut ArenaGuard<'frame>,
 }
 
 impl<'f> Mem<'f> {
-    pub fn new(arena: &'f mut Arena<'f>) -> Self {
+    pub fn new(arena: &'f mut ArenaGuard<'f>) -> Self {
         Mem {
             alloc_seq: 0,
             arena,
@@ -37,15 +37,15 @@ impl<'f> Mem<'f> {
 
 #[cfg(test)]
 mod tests {
-    use arena::ArenaContainer;
+    use arena::Arena;
 
     use super::*;
 
     #[test]
     fn test_mem() {
-        let mut container = ArenaContainer::default();
-        let arena = container.new_arena(1);
-        let mut mem = Mem::new(arena);
+        let mut arena = Arena::default();
+        let ag = arena.fresh_arena(1);
+        let mut mem = Mem::new(ag);
 
         let vec = mem.vec();
         vec.push(69);

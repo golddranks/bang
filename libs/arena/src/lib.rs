@@ -1,11 +1,9 @@
-use std::{
-    fmt::Debug,
-    marker::PhantomData,
-    mem::{needs_drop, transmute},
-    ptr::copy,
-    slice,
-};
+use std::{fmt::Debug, mem::transmute};
 
+pub use guard::ArenaGuard;
+pub use managed::{Id, Managed};
+
+mod guard;
 mod managed;
 #[cfg(any(test, doctest))]
 mod tests;
@@ -13,7 +11,7 @@ mod val;
 mod vec;
 
 // Placeholder types for type erasure
-
+//
 // Erased can't be a zero-sized type, because Vec<_>'s capacity returns
 // usize::MAX for a zero-sized type instead of an allocated capacity.
 
@@ -29,6 +27,8 @@ struct ErasedMax {
 struct ErasedMin {
     _padding: u8,
 }
+
+// Memory usage reporting
 
 /// MemoryUsage represents detailed memory usage report for the arena allocation.
 #[derive(Debug, Clone, Copy, Default)]
@@ -48,322 +48,31 @@ impl MemoryUsage {
     }
 }
 
-#[derive(Debug)]
-pub struct Arena<'a> {
-    pub alloc_seq: usize,
-    vec_align_1: vec::ByAlign,
-    vec_align_2: vec::ByAlign,
-    vec_align_4: vec::ByAlign,
-    vec_align_8: vec::ByAlign,
-    vec_align_16: vec::ByAlign,
-    val_align_1: val::ByAlign,
-    val_align_2: val::ByAlign,
-    val_align_4: val::ByAlign,
-    val_align_8: val::ByAlign,
-    val_align_16: val::ByAlign,
-    _lifetime: PhantomData<&'a mut ErasedMax>,
-}
-
-impl<'a> Drop for Arena<'a> {
-    fn drop(&mut self) {
-        // We need to manually drop the vecs to avoid memory leaks.
-        // The vecs are not automatically dropped because they are stored as
-        // type-erased vecs in MaybeUninit<_>. The destructors of the contents
-        // of the vecs and single values are not called; this is part of the
-        // library API contract.
-        let aligns = [
-            (1, &mut self.vec_align_1),
-            (2, &mut self.vec_align_2),
-            (4, &mut self.vec_align_4),
-            (8, &mut self.vec_align_8),
-            (16, &mut self.vec_align_16),
-        ];
-        for (align, by_align) in aligns {
-            by_align.drop(align)
-        }
-    }
-}
-
-/// Short-lived arena implementation
-///
-/// Supports objects with aligments up to 16 bytes. This is the maximum
-/// natural alignment for all supported platforms.
-///
-/// # Panics
-///
-/// The allocation methods (`alloc_val`, `alloc_vec`, `alloc_slice`,
-/// `alloc_iter`, `alloc_val_ignore_drop`, `alloc_vec_ignore_drop`,
-/// `alloc_slice_ignore_drop`, `alloc_iter_ignore_drop`) panic if attempting to
-/// allocate a type with alignment that is not 1, 2, 4, 8, or 16. Attempting
-/// to do so is API misuse and on caller's responsibility.
-impl<'a> Arena<'a> {
-    fn new() -> Self {
-        Arena {
-            alloc_seq: 1,
-            vec_align_1: vec::ByAlign::new(),
-            vec_align_2: vec::ByAlign::new(),
-            vec_align_4: vec::ByAlign::new(),
-            vec_align_8: vec::ByAlign::new(),
-            vec_align_16: vec::ByAlign::new(),
-            val_align_1: val::ByAlign::new(),
-            val_align_2: val::ByAlign::new(),
-            val_align_4: val::ByAlign::new(),
-            val_align_8: val::ByAlign::new(),
-            val_align_16: val::ByAlign::new(),
-            _lifetime: PhantomData,
-        }
-    }
-
-    fn memory_usage(&self) -> MemoryUsage {
-        let mut usage = MemoryUsage::default();
-
-        usage.overhead_bytes += size_of::<Arena>();
-
-        let vec_aligns = [
-            (1, &self.vec_align_1),
-            (2, &self.vec_align_2),
-            (4, &self.vec_align_4),
-            (8, &self.vec_align_8),
-            (16, &self.vec_align_16),
-        ];
-
-        for (align, by_align) in vec_aligns {
-            by_align.memory_usage(align, self.alloc_seq, &mut usage);
-        }
-
-        let val_aligns = [
-            &self.val_align_1,
-            &self.val_align_2,
-            &self.val_align_4,
-            &self.val_align_8,
-            &self.val_align_16,
-        ];
-
-        for by_align in val_aligns {
-            by_align.memory_usage(&mut usage);
-        }
-
-        usage
-    }
-
-    const fn get_vec_align(&mut self, align: usize) -> &mut vec::ByAlign {
-        match align {
-            1 => &mut self.vec_align_1,
-            2 => &mut self.vec_align_2,
-            4 => &mut self.vec_align_4,
-            8 => &mut self.vec_align_8,
-            16 => &mut self.vec_align_16,
-            // Panics: API misuse; caller's responsibility
-            _ => panic!("Unsupported alignment"),
-        }
-    }
-
-    const fn get_val_align(&mut self, align: usize) -> &mut val::ByAlign {
-        match align {
-            1 => &mut self.val_align_1,
-            2 => &mut self.val_align_2,
-            4 => &mut self.val_align_4,
-            8 => &mut self.val_align_8,
-            16 => &mut self.val_align_16,
-            // Panics: API misuse; caller's responsibility
-            _ => panic!("Unsupported alignment"),
-        }
-    }
-
-    pub fn alloc_vec<T>(&mut self) -> &'a mut Vec<T> {
-        // Panics: Static assert, so no runtime panics are possible
-        const { assert!(!needs_drop::<T>()) };
-        self.alloc_vec_ignore_drop()
-    }
-
-    pub fn alloc_slice<T>(&mut self, slice: &[T]) -> &'a mut [T] {
-        // Panics: Static assert, so no runtime panics are possible
-        const { assert!(!needs_drop::<T>()) };
-        self.alloc_slice_ignore_drop(slice)
-    }
-
-    pub fn alloc_val<T>(&mut self, val: T) -> &'a mut T {
-        // Panics: Static assert, so no runtime panics are possible
-        const { assert!(!needs_drop::<T>()) };
-        self.alloc_val_ignore_drop(val)
-    }
-
-    pub fn alloc_iter<T>(&mut self, iter: impl ExactSizeIterator<Item = T>) -> &'a mut [T] {
-        // Panics: Static assert, so no runtime panics are possible
-        const { assert!(!needs_drop::<T>()) };
-        self.alloc_iter_ignore_drop(iter)
-    }
-
-    pub fn alloc_iter_ignore_drop<T>(
-        &mut self,
-        iter: impl ExactSizeIterator<Item = T>,
-    ) -> &'a mut [T] {
-        let item_byte_size = size_of::<T>();
-        let by_align = self.get_val_align(align_of::<T>());
-        // We can't trust this length, so measures for both it being too short
-        // or too long are taken below.
-        let len = iter.len();
-        // Safety:
-        // - Valid size: The used `by_align` is matched to the alignment of `T`.
-        //   `T` size is always a multiple of that alignment per Rust's memory
-        //   layout guarantees, and the allocated size is calculated to be a
-        //   multiple of `T` size.
-        // - No aliasing: References borrowed out from this arena during the
-        //   past and future allocation sequences are ensured not to be live by
-        //   the lifetime constraints of the arena API.
-        let erased_ptr = unsafe { by_align.allocate_val(len * item_byte_size) };
-        let start_typed_ptr = erased_ptr as *mut T;
-        let mut typed_ptr = start_typed_ptr;
-        let mut written = 0;
-        for val in iter.take(len) {
-            // Safety:
-            // `erased_ptr`, converted to `typed_ptr` has size and alignment
-            // that are ensured to be compatible with type `T` (size, by the
-            // implementation of `allocate_val`, and alignment, by allocating
-            // only values of the same alignment to the same alignment bucket).
-            // The backing allocation is ensured to be unaliazed by
-            // `allocate_val` and the lifetime constraints of the earlier and
-            // future borrows. It is originally stored as unassuming
-            // `MaybeUninit<_>`, and doesn't contain any live values.
-            // The allocated length corresponds to the iterator length, and a
-            // `take` iterator is created to ensure that the loop doesn't run
-            // over the allocated length.
-            unsafe {
-                typed_ptr.write(val);
-                typed_ptr = typed_ptr.add(1);
-            }
-            written += 1;
-        }
-
-        if written < len {
-            let shrunk_by_bytes = (len - written) * item_byte_size;
-            // Safety:
-            // - No allocations between: There are no allocations between
-            //   this `shrink_val` call and the `allocate_val` call above.
-            // - Shrunk by valid size: `shrunk_by_bytes` is, by construction,
-            //   constrained to be always 0 <= `shrunk_by_bytes` <= size of the
-            //   last allocation, and always a multiple of the item size, and
-            //   thus also a multiple of the alignment.
-            // - No references: No references are created between the last
-            //   allocation and the shrink operation.
-            unsafe { by_align.shrink_val(erased_ptr, shrunk_by_bytes) };
-        }
-
-        // Safety: the slice is ensured to be of correct type `T` (valid memory
-        // layout and initialized values), unaliased, and the length is the
-        // same as the actual length produced by the iterator. The count of
-        // produced values is checked, and only the initialized part of the
-        // allocation is returned. (The uninitialized part is shrunk to fit by
-        // `shrink_val`.)
-        unsafe { slice::from_raw_parts_mut(start_typed_ptr, written) }
-    }
-
-    pub fn alloc_vec_ignore_drop<T>(&mut self) -> &'a mut Vec<T> {
-        let n_size = const { size_of::<T>() / align_of::<T>() };
-        let seq = self.alloc_seq;
-        let by_align = self.get_vec_align(align_of::<T>());
-        let erased = by_align.allocate_vec(n_size, seq);
-        let typed_ptr = erased as *mut Vec<ErasedMax> as *mut Vec<T>;
-
-        // Safety: This cast between Vec types is safe because:
-        // 1. Vec<T> and Vec<Erased> have identical memory layouts regardless of T
-        // 2. We immediately set the Vec length to 0, so no contained values of
-        //    the previous type will be incorrectly interpreted as type T
-        let typed = unsafe { &mut *typed_ptr };
-
-        // Safety: Setting len to 0 is safe even when reusing a vector that
-        // previously held values of a different type because:
-        // 1. Setting the length to 0, a minimal value, can never overflow the capacity
-        // 2. We deliberately avoid running destructors on any potential existing elements
-        //    (which would be unsound as they might be of a different, previous type)
-        // 3. Not calling destructors is considered sound in Rust
-        // Thus, any memory previously used by the vector becomes inaccessible
-        // but remains allocated, allowing us to reuse the capacity.
-        unsafe { typed.set_len(0) };
-        typed
-    }
-
-    pub fn alloc_slice_ignore_drop<T>(&mut self, slice: &[T]) -> &'a mut [T] {
-        let byte_size = size_of_val(slice);
-        let by_align = self.get_val_align(align_of::<T>());
-
-        // Safety:
-        // - Valid size: The used `by_align` is matched to the alignment of `T`.
-        //   `T` size is always a multiple of that alignment per Rust's memory
-        //   layout guarantees, and the allocated size is calculated to be a
-        //   multiple of `T` size.
-        // - No aliasing: References borrowed out from this arena during the
-        //   past and future allocation sequences are ensured not to be live by
-        //   the lifetime constraints of the arena API.
-        let erased_ptr = unsafe { by_align.allocate_val(byte_size) };
-        let typed_ptr = erased_ptr as *mut T;
-        // Safety: erased_ptr has size and alignment that is ensured to be
-        // compatible with T. The memory is originally stored as MaybeUninit<_>,
-        // and it's safe to cast to a unique reference because it's not touched
-        // via any other way as long as the borrow is live.
-        unsafe {
-            copy(slice.as_ptr(), typed_ptr, slice.len());
-            slice::from_raw_parts_mut(typed_ptr, slice.len())
-        }
-    }
-
-    pub fn alloc_val_ignore_drop<T>(&mut self, val: T) -> &'a mut T {
-        let byte_size = size_of::<T>();
-        let by_align = self.get_val_align(align_of::<T>());
-
-        // Safety:
-        // - Valid size: The used `by_align` is matched to the alignment of `T`.
-        //   `T` size is always a multiple of that alignment per Rust's memory
-        //   layout guarantees, and the allocated size is calculated to be a
-        //   multiple of `T` size.
-        // - No aliasing: References borrowed out from this arena during the
-        //   past and future allocation sequences are ensured not to be live by
-        //   the lifetime constraints of the arena API.
-        let erased_ptr = unsafe { by_align.allocate_val(byte_size) };
-        let typed_ptr = erased_ptr as *mut T;
-        // Safety: erased_ptr has size and alignment that is ensured to be
-        // compatible with T. The memory is originally stored as MaybeUninit<_>,
-        // and it's safe to cast to a unique reference because it's not touched
-        // via any other way as long as the borrow is live.
-        unsafe {
-            typed_ptr.write(val);
-            &mut *typed_ptr
-        }
-    }
-
-    fn reset(&mut self, seq: usize) {
-        self.alloc_seq = seq;
-        self.val_align_1.reset();
-        self.val_align_2.reset();
-        self.val_align_4.reset();
-        self.val_align_8.reset();
-        self.val_align_16.reset();
-    }
-}
+// Main arena wrapper
 
 #[derive(Debug)]
-pub struct ArenaContainer {
+pub struct Arena {
     pub alloc_seq: usize,
-    arena: Arena<'static>,
+    arena: ArenaGuard<'static>,
 }
 
-impl Default for ArenaContainer {
+impl Default for Arena {
     fn default() -> Self {
         Self {
             alloc_seq: 0,
-            arena: Arena::new(),
+            arena: ArenaGuard::new(),
         }
     }
 }
 
-impl ArenaContainer {
-    pub fn memory_usage(&self) -> MemoryUsage {
-        self.arena.memory_usage()
+impl Arena {
+    pub fn memory_usage(&mut self) -> MemoryUsage {
+        unsafe { self.arena.memory_usage() }
     }
 
-    pub fn new_arena<'a>(&'a mut self, seq: usize) -> &'a mut Arena<'a> {
+    pub fn fresh_arena<'a>(&'a mut self, seq: usize) -> &'a mut ArenaGuard<'a> {
         self.alloc_seq = seq;
-        self.arena.reset(seq);
+        unsafe { self.arena.reset(seq) };
         // Safety: This lifetime transmutation is safe because:
         // 1. We are only changing the lifetime parameter, not the type structure
         // 2. The arena's 'static lifetime is being shortened to match self's lifetime 'a
@@ -373,5 +82,3 @@ impl ArenaContainer {
         unsafe { transmute(&mut self.arena) }
     }
 }
-
-pub use managed::{Id, Managed};

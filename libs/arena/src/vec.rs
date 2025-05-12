@@ -51,13 +51,13 @@ impl VecChunk {
         // of index being less than capacity is always upheld. In case it's not,
         // that's a bug.
         debug_assert!(idx < self.cap());
-        let first_slot_ptr = (&raw mut *self.0) as *mut MaybeUninit<Vec<Erased>>;
+        let first_slot_ptr = self.as_ptr() as *mut MaybeUninit<Vec<Erased>>;
         // Safety: idx must be less than the capacity (debug-asserted above but
         // ultimately caller's responsibility, as documented), and
         // there must be no other aliasing references to the slot. (Caller's
         // responsibility, as documented)
         let slot = unsafe { &mut *first_slot_ptr.add(idx) };
-        // Safety: slot must be initialized (happens on chunk allocation)
+        // Safety: slot is always initialized (happens on chunk allocation)
         unsafe { slot.assume_init_mut() }
     }
 
@@ -161,6 +161,7 @@ impl ByAlign {
             let element_size = n * align;
             for chunk in by_size.chunks {
                 for mut slot in chunk.0 {
+                    // Safety: slot is always initialized (happens on chunk allocation)
                     let erased = unsafe { slot.assume_init_mut() };
                     if erased.capacity() > 0 {
                         let alloc_size = element_size * erased.capacity();
@@ -170,6 +171,11 @@ impl ByAlign {
                         let layout = Layout::from_size_align(alloc_size, align)
                             .expect("UNREACHABLE: always valid");
                         let ptr = erased.as_mut_ptr() as *mut u8;
+                        // Safety: ptr is originally allocated by `Vec`, held
+                        // by this arena. All such vecs use the global
+                        // allocator, which is also what `dealloc` uses.
+                        // Layout is calculated to match the align and size of
+                        // the allocation held by the vec.
                         unsafe { dealloc(ptr, layout) };
                     }
                 }
@@ -177,17 +183,37 @@ impl ByAlign {
         }
     }
 
-    pub(crate) fn memory_usage(&self, align: usize, seq: usize, usage: &mut MemoryUsage) {
+    /// Returns the memory usage of vecs in this `ByAlign`.
+    ///
+    /// # Safety
+    ///
+    /// No aliasing: This method inspects the `capacity` and `len` fields of
+    /// all vecs stored by this arena. The caller must ensure that no live
+    /// mutable references (`&mut Vec<T>`) to the vecs stored by this arena are
+    /// held. (Shared references (`&Vec<T>`) and mutable slice references to
+    /// the contents of the vecs (`&mut [T]`) are OK.) Breaking this rule is
+    /// Undefined Behavior.
+    pub(crate) unsafe fn memory_usage(&self, align: usize, seq: usize, usage: &mut MemoryUsage) {
         usage.overhead_bytes += self.sizes.capacity() * size_of::<BySize>();
         for (n_size, by_size) in self.sizes.iter().enumerate() {
             let element_size = n_size * align;
             usage.overhead_bytes += by_size.chunks.capacity() * size_of::<VecChunk>();
 
             for chunk in &by_size.chunks {
-                usage.overhead_bytes += size_of_val(&*chunk.0);
+                let len = chunk.as_ptr().len();
+                usage.overhead_bytes += len * size_of::<MaybeUninit<Vec<Erased>>>();
 
-                for slot in chunk.0.iter() {
-                    let vec = unsafe { slot.assume_init_ref() };
+                let start = chunk.as_ptr() as *const MaybeUninit<Vec<Erased>>;
+                for offset in 0..len {
+                    // Safety: Slot is in bounds for all offsets 0..len.
+                    let slot = unsafe { start.add(offset) };
+                    // Safety (dereference):
+                    // 1. Slot is ensured to be in bounds.
+                    // 2. There are no live mutable references to the slot
+                    //    (caller's responsibility).
+                    // Safety (assume_init):
+                    // Slot is always initialized (happens on chunk allocation).
+                    let vec = unsafe { (*slot).assume_init_ref() };
                     usage.capacity_bytes += vec.capacity() * element_size;
                     if seq == by_size.seq {
                         usage.content_bytes += vec.len() * element_size;
