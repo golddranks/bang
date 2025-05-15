@@ -159,7 +159,7 @@ impl<'a> ArenaGuard<'a> {
             8 => &mut self.vec_align_8,
             16 => &mut self.vec_align_16,
             // Panics: API misuse; caller's responsibility
-            _ => panic!("Unsupported alignment"),
+            _ => panic!("UNREACHABLE: Unsupported alignment"),
         }
     }
 
@@ -171,8 +171,14 @@ impl<'a> ArenaGuard<'a> {
             8 => &mut self.val_align_8,
             16 => &mut self.val_align_16,
             // Panics: API misuse; caller's responsibility
-            _ => panic!("Unsupported alignment"),
+            _ => panic!("UNREACHABLE: Unsupported alignment"),
         }
+    }
+
+    const fn check_alignment(align: usize) {
+        assert!(align.is_power_of_two());
+        assert!(align >= 1);
+        assert!(align <= 16);
     }
 
     pub fn alloc_vec<T>(&mut self) -> &'a mut Vec<T> {
@@ -191,6 +197,8 @@ impl<'a> ArenaGuard<'a> {
         // We ensure statically that the size and alignment of String and
         // Vec<u8> are the same. The allocated buffer also shares the
         // alignment and size of 1 byte, so the layouts are compatible.
+        // The Vec is empty directly after allocation, so UTF-8 validity
+        // is not a concern.
         let s = unsafe { transmute::<&mut Vec<u8>, &mut String>(vec) };
         s.push_str(str);
         s
@@ -228,6 +236,8 @@ impl<'a> ArenaGuard<'a> {
     }
 
     pub fn alloc_sink_ignore_drop<'s, T>(&'s mut self) -> Sink<'s, 'a, T> {
+        // Panics: Static assert, so no runtime panics are possible
+        const { Self::check_alignment(align_of::<T>()) }
         let by_align = self.get_val_align(align_of::<T>());
         Sink {
             len: 0,
@@ -240,6 +250,8 @@ impl<'a> ArenaGuard<'a> {
         &mut self,
         iter: impl ExactSizeIterator<Item = T>,
     ) -> &'a mut [T] {
+        // Panics: Static assert, so no runtime panics are possible
+        const { Self::check_alignment(align_of::<T>()) }
         let item_byte_size = size_of::<T>();
         let by_align = self.get_val_align(align_of::<T>());
         // We can't trust this length, so measures for both it being too short
@@ -303,6 +315,8 @@ impl<'a> ArenaGuard<'a> {
     }
 
     pub fn alloc_vec_ignore_drop<T>(&mut self) -> &'a mut Vec<T> {
+        // Panics: Static assert, so no runtime panics are possible
+        const { Self::check_alignment(align_of::<T>()) }
         let n_size = const { size_of::<T>() / align_of::<T>() };
         let seq = self.alloc_seq;
         let by_align = self.get_vec_align(align_of::<T>());
@@ -328,6 +342,8 @@ impl<'a> ArenaGuard<'a> {
     }
 
     pub fn alloc_slice_ignore_drop<T>(&mut self, slice: &[T]) -> &'a mut [T] {
+        // Panics: Static assert, so no runtime panics are possible
+        const { Self::check_alignment(align_of::<T>()) }
         let byte_size = size_of_val(slice);
         let by_align = self.get_val_align(align_of::<T>());
 
@@ -352,6 +368,8 @@ impl<'a> ArenaGuard<'a> {
     }
 
     pub fn alloc_val_ignore_drop<T>(&mut self, val: T) -> &'a mut T {
+        // Panics: Static assert, so no runtime panics are possible
+        const { Self::check_alignment(align_of::<T>()) }
         let byte_size = size_of::<T>();
         let by_align = self.get_val_align(align_of::<T>());
 
@@ -376,6 +394,7 @@ impl<'a> ArenaGuard<'a> {
     }
 
     pub(crate) unsafe fn reset(&mut self, seq: usize) {
+        debug_assert!(seq > self.alloc_seq);
         self.alloc_seq = seq;
         self.val_align_1.reset();
         self.val_align_2.reset();
