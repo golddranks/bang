@@ -1,6 +1,8 @@
 use std::slice::{from_raw_parts, from_raw_parts_mut};
 
-use crate::alloc::Mem;
+use arena::Id;
+
+use crate::{alloc::Mem, ffi::Tex};
 
 /// # Safety
 /// This trait is safe to implement for types that don't have
@@ -48,22 +50,20 @@ impl ScreenPos {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-#[repr(transparent)]
-pub struct TextureID(pub u64);
-
 #[derive(Debug)]
 #[repr(C)]
 pub enum Cmd<'f> {
-    DrawSQuads {
-        texture: TextureID,
-        pos: &'f [ScreenPos],
-    },
+    DrawDummies { pos: &'f [ScreenPos] },
+    DrawSQuads { tex: Id<Tex>, pos: &'f [ScreenPos] },
 }
 
 impl<'f> Cmd<'f> {
-    pub fn draw_s_quads(texture: TextureID, pos: &'f [ScreenPos]) -> Self {
-        Cmd::DrawSQuads { texture, pos }
+    pub fn draw_s_quads(tex: Id<Tex>, pos: &'f [ScreenPos]) -> Self {
+        Cmd::DrawSQuads { tex, pos }
+    }
+
+    pub fn draw_dummies(pos: &'f [ScreenPos]) -> Self {
+        Cmd::DrawDummies { pos }
     }
 }
 
@@ -89,7 +89,7 @@ impl<'f> DrawFrame<'f> {
 
     pub fn debug_dummies(dummies: &[(f32, f32)], mem: &mut Mem<'f>) -> Self {
         let pos = mem.from_iter(dummies.iter().map(|&(x, y)| ScreenPos { x, y }));
-        let cmds = mem.slice(&[Cmd::draw_s_quads(TextureID(0), pos)]);
+        let cmds = mem.slice(&[Cmd::draw_dummies(pos)]);
         Self::with_cmds(cmds, mem.alloc_seq)
     }
 }
@@ -120,8 +120,10 @@ mod tests {
         assert_eq!(frame.alloc_seq, alloc.alloc_seq);
         assert_eq!(frame.cmds.len(), 1);
         match &frame.cmds[0] {
-            &Cmd::DrawSQuads { texture, pos } => {
-                assert_eq!(texture.0, 0);
+            &Cmd::DrawSQuads { .. } => {
+                unreachable!()
+            }
+            &Cmd::DrawDummies { pos } => {
                 assert_eq!(pos.len(), 5);
                 assert_eq!(pos[0].x, 0.0);
                 assert_eq!(pos[0].y, 0.0);

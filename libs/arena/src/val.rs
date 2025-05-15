@@ -1,6 +1,6 @@
 use std::{cmp::max, mem::MaybeUninit};
 
-use crate::{ErasedMax, ErasedMin, MemoryUsage};
+use crate::{Erased, ErasedMax, MemoryUsage};
 
 #[derive(Debug)]
 struct ValChunk(Box<[MaybeUninit<ErasedMax>]>);
@@ -46,11 +46,28 @@ impl ValChunk {
     /// - In bounds: Caller must ensure that the pointer + the size of the
     ///   pointed type are in the bounds of the chunk, even after the pointer
     ///   is cast from the temporary ErasedMin to the final type
-    unsafe fn get(&mut self, byte_offset: usize) -> *mut ErasedMin {
-        let buf_start_ptr = (&raw mut *self.0) as *mut MaybeUninit<ErasedMin>;
+    unsafe fn get_mut(&mut self, byte_offset: usize) -> *mut Erased {
+        let buf_start_ptr = self.as_ptr() as *mut MaybeUninit<Erased>;
         // Safety: caller's responsibility as documented
         let obj_ptr = unsafe { buf_start_ptr.byte_add(byte_offset) };
-        obj_ptr as *mut ErasedMin
+        obj_ptr as *mut Erased
+    }
+
+    /// Returns a reference to the vector at the given index.
+    ///
+    /// # Safety
+    ///
+    /// - No aliasing: Caller must ensure that no other references to the
+    ///   pointed memory exist, and no other such references are created until
+    ///   the pointer and possible references derived from it are no longer used.
+    /// - In bounds: Caller must ensure that the pointer + the size of the
+    ///   pointed type are in the bounds of the chunk, even after the pointer
+    ///   is cast from the temporary ErasedMin to the final type
+    unsafe fn get_const(&self, byte_offset: usize) -> *const Erased {
+        let buf_start_ptr = self.as_ptr() as *const MaybeUninit<Erased>;
+        // Safety: caller's responsibility as documented
+        let obj_ptr = unsafe { buf_start_ptr.byte_add(byte_offset) };
+        obj_ptr as *const Erased
     }
 
     fn new_from_chunks(chunks: &mut Vec<ValChunk>, prev_content_bytes: usize) -> ValChunk {
@@ -107,6 +124,19 @@ impl ByAlign {
         self.last_used_bytes = 0;
     }
 
+    fn move_over(&mut self, bytes: usize) {
+        let prev_chunk = &mut self.chunks[self.last - 1];
+        let src_range_start = prev_chunk
+            .as_ptr()
+            .wrapping_byte_add(prev_chunk.cap_bytes() - bytes)
+            as *const Erased;
+        let dest_range_start = self.chunks[self.last].0.as_mut_ptr() as *mut Erased;
+        unsafe {
+            src_range_start.copy_to_nonoverlapping(dest_range_start, bytes);
+        }
+        self.last_used_bytes = bytes;
+    }
+
     /// Allocate a value of the given size in bytes.
     ///
     /// # Safety
@@ -117,7 +147,7 @@ impl ByAlign {
     ///   multiple of that alignment.
     /// - No aliasing: If you create references from returned `*mut ErasedMin`,
     ///   you must ensure that they are no longer live after calling `reset`.
-    pub(crate) unsafe fn allocate_val(&mut self, byte_size: usize) -> *mut ErasedMin {
+    pub(crate) unsafe fn allocate_val(&mut self, byte_size: usize) -> *mut Erased {
         if self.capacity_over(byte_size) {
             self.grow(byte_size);
         }
@@ -130,9 +160,59 @@ impl ByAlign {
         // - In bounds: The pointer offset (`last_used_bytes`) + the size of
         //   the pointed value (`byte_size`) are checked to always be in bounds
         //   by the `capacity_over()` method.
-        let ptr = unsafe { self.chunks[self.last].get(self.last_used_bytes) };
+        let ptr = unsafe { self.chunks[self.last].get_mut(self.last_used_bytes) };
         self.last_used_bytes += byte_size;
         ptr
+    }
+
+    /// Allocate a value of the given size in bytes. Ensures that the previous
+    /// `len` allocations are continuous with the new allocation, so that the
+    /// allocation series can later be converted into a slice. If the capacity
+    /// of the chunk is reached, a new chunk is allocated, and the last `len`
+    /// allocations are copied over to the new chunk, keeping them continuous.
+    ///
+    /// # Safety
+    ///
+    /// - Valid size: You must ensure that the argument `byte_size` is valid.
+    ///   In particular, you must ensure that all the values stored in the
+    ///   same `ByAlign` object have the same alignment, and `byte_size` is a
+    ///   multiple of that alignment.
+    /// - No aliasing: If you create references from returned `*mut ErasedMin`,
+    ///   you must ensure that they are no longer live after calling `reset`.
+    /// - Valid len: You must ensure that the argument `len` is valid, i.e.,
+    ///   that the last `len` allocations are indeed done, and with the same
+    ///   byte size as the current one.
+    pub(crate) unsafe fn allocate_continuous(
+        &mut self,
+        len: usize,
+        byte_size: usize,
+    ) -> *mut Erased {
+        debug_assert!(len <= self.chunks[self.last].cap_bytes());
+
+        if self.capacity_over(byte_size) {
+            self.grow(byte_size * len);
+            self.move_over(byte_size * len);
+        }
+
+        // Safety:
+        // - No aliasing: We increment last_used_bytes immediately after getting
+        //   the reference so future calls won't create aliasing references.
+        //   When re-using values, lifetime restrictions on the Area ensure
+        //   that earlier references are dead.
+        // - In bounds: The pointer offset (`last_used_bytes`) + the size of
+        //   the pointed value (`byte_size`) are checked to always be in bounds
+        //   by the `capacity_over()` method.
+        let ptr = unsafe { self.chunks[self.last].get_mut(self.last_used_bytes) };
+        self.last_used_bytes += byte_size;
+        ptr
+    }
+
+    pub(crate) fn current_const(&self) -> *const Erased {
+        unsafe { self.chunks[self.last].get_const(self.last_used_bytes) }
+    }
+
+    pub(crate) fn current_mut(&mut self) -> *mut Erased {
+        unsafe { self.chunks[self.last].get_mut(self.last_used_bytes) }
     }
 
     /// Shrinks last allocation
@@ -149,7 +229,7 @@ impl ByAlign {
     ///   of the last allocation, and a multiple of the `ByAlign` alignment.
     /// - No references: There must be no live references to the shrinked
     ///   part.
-    pub(crate) unsafe fn shrink_val(&mut self, last_alloc_ptr: *mut ErasedMin, by: usize) {
+    pub(crate) unsafe fn shrink_val(&mut self, last_alloc_ptr: *mut Erased, by: usize) {
         // Check that the pointer is within the bounds of the last chunk,
         // and `by` is less than the allocation size
         #[cfg(debug_assertions)]

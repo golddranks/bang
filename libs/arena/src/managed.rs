@@ -1,10 +1,32 @@
-use std::{any::type_name, fmt::Debug, hash::Hash, marker::PhantomData, mem::MaybeUninit};
+use std::{
+    any::type_name,
+    collections::VecDeque,
+    fmt::Debug,
+    hash::Hash,
+    marker::PhantomData,
+    mem::MaybeUninit,
+    sync::atomic::{AtomicPtr, AtomicU16, AtomicU32, AtomicU64, Ordering},
+};
 
-pub struct Managed<T> {
+static GLOBAL_ARENA_SEQ: AtomicU16 = AtomicU16::new(0);
+
+use crate::Erased;
+
+struct Store<T> {
+    alloc_seq: usize,
     store: Vec<MaybeUninit<T>>,
     generations: Vec<u32>,
+}
+
+pub struct Managed<'l, T, I = Erased> {
+    arena_id: u16,
+    stores: VecDeque<Store<T>>,
+    current_store: AtomicPtr<Store<T>>,
+    alloc_seq: &'l AtomicU64,
     free_list: Vec<u32>,
     reap_list: Vec<u32>,
+    _basetype_marker: PhantomData<T>,
+    _iface_marker: PhantomData<I>,
 }
 
 pub struct Id<T> {
@@ -45,57 +67,101 @@ impl<T> Hash for Id<T> {
 
 impl<T> Debug for Id<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (idx, gener) = self.parts();
+        let (arena_id, idx, gener) = self.parts();
+        let type_name = type_name::<T>();
         write!(
             f,
-            "Id(idx={}, gen={}, type={})",
-            idx,
-            gener,
-            type_name::<T>()
+            "Id(arena_id={arena_id}, idx={idx}, gen={gener}, type={type_name})",
         )
     }
 }
 
 impl<T> Id<T> {
-    pub fn new(idx: usize, generation: u32) -> Self {
-        let id = (idx as u64) << 32 | generation as u64;
+    fn new(arena_id: u16, idx: usize, generation: u32) -> Self {
+        debug_assert!(idx <= 0xFFFFFF);
+        debug_assert!(generation <= 0xFFFFFF);
+        let id = (arena_id as u64) << 48 | (idx as u64) << 24 | generation as u64;
         Self {
             id,
             _marker: PhantomData,
         }
     }
 
+    pub fn arena_id(self) -> u16 {
+        (self.id >> 48) as u16
+    }
+
     pub fn idx(self) -> usize {
-        (self.id >> 32) as usize
+        ((self.id >> 24) & 0xFFFFFF) as usize
     }
 
     pub fn gener(self) -> u32 {
-        (self.id & 0x0000_0000_FFFF_FFFF) as u32
+        (self.id & 0xFFFFFF) as u32
     }
 
-    pub fn parts(self) -> (usize, u32) {
-        (self.idx(), self.gener())
+    pub fn parts(self) -> (u16, usize, u32) {
+        (self.arena_id(), self.idx(), self.gener())
     }
 }
 
-impl<T> Default for Managed<T> {
-    fn default() -> Self {
-        Self {
+impl<T, I> Managed<T, I>
+where
+    MaybeUninit<T>: Clone,
+{
+    fn new(seq: usize) -> Self {
+        let arena_id = GLOBAL_ARENA_SEQ.fetch_add(1, Ordering::Relaxed);
+        let mut stores = VecDeque::new();
+        stores.push_front(Store {
+            alloc_seq: 1,
             store: Vec::new(),
             generations: Vec::new(),
+        });
+        // UNREACHABLE: `self.stores` was just initialized with one `Vec`
+        let current_store = AtomicPtr::new(stores.front_mut().expect("UNREACHABLE: never empty"));
+        Self {
+            arena_id,
+            stores,
+            current_store,
+            alloc_seq: 1,
             free_list: Vec::new(),
             reap_list: Vec::new(),
+            _iface_marker: PhantomData,
+            _basetype_marker: PhantomData,
         }
     }
-}
 
-impl<T> Managed<T> {
+    fn current_store(&mut self) -> &mut Store<T> {
+        // Safety: TODO
+        unsafe { &mut *self.current_store.load(Ordering::Acquire) }
+    }
+
+    fn grow(&mut self) -> &mut Store<T> {
+        let full_store = self.current_store();
+        let mut store = Vec::with_capacity(full_store.store.capacity() * 2);
+        store.extend(full_store.store.iter().cloned());
+        let new_store = Store {
+            alloc_seq: self.alloc_seq,
+            store,
+        };
+        self.stores.push_front(new_store);
+        // UNREACHABLE: we just added an item, so `self.stores` is never empty
+        self.stores.front_mut().expect("UNREACHABLE: never empty")
+    }
+
     pub fn alloc(&mut self, val: T) -> Id<T> {
-        let (idx, gener) = if self.free_list.is_empty() {
-            let idx = self.store.len();
-            self.store.push(MaybeUninit::new(val));
-            self.generations.push(0);
-            (idx, 0)
+        let arena_id = self.arena_id;
+        if self.free_list.is_empty() {
+            let current_store = self.current_store();
+            let next_idx = current_store.store.len();
+            assert!(next_idx < 0xFFFFFF);
+            let current_store = if next_idx < current_store.store.capacity() {
+                current_store
+            } else {
+                self.grow()
+            };
+            current_store.store.push(MaybeUninit::new(val));
+            current_store.generations.push(0);
+            Id::new(arena_id, next_idx, 0)
         } else {
             // UNREACHABLE: self.free_list was checked not to be empty in the
             // if condition that led to this else branch
@@ -103,12 +169,16 @@ impl<T> Managed<T> {
                 .free_list
                 .pop()
                 .expect("UNREACHABLE: checked not to be empty") as usize;
-            let gener = &mut self.generations[idx];
+            let current_store = self.current_store();
+            current_store.store[idx] = MaybeUninit::new(val);
+            let gener = &mut current_store.generations[idx];
             *gener += 1;
-            self.store[idx] = MaybeUninit::new(val);
-            (idx, *gener)
-        };
-        Id::new(idx, gener)
+            Id::new(arena_id, idx, *gener)
+        }
+    }
+
+    pub fn alloc_upcast(&mut self, val: T) -> Id<I> {
+        Self::upcast(self.alloc(val))
     }
 
     pub fn reap_deferred_now(&mut self) {
@@ -119,7 +189,7 @@ impl<T> Managed<T> {
             // `reap_list`. Other methods don't insert anything. The list is drained
             // only by `reap_deferred_now`, and possible duplicates are deduplicated,
             // so drop and freeing procedure is called exactly once per value.
-            unsafe { self.store[idx as usize].assume_init_drop() };
+            unsafe { self.stores[idx as usize].assume_init_drop() };
             self.generations[idx as usize] += 1;
             self.free_list.push(idx);
         }
@@ -136,8 +206,9 @@ impl<T> Managed<T> {
     /// and may panic. This is considered API misuse and is on caller's
     /// responsibility.
     pub fn defer_free(&mut self, id: Id<T>) -> bool {
-        let (idx, gener) = id.parts();
+        let (arena_id, idx, gener) = id.parts();
         // Panic: documented in the docstring. Caller's responsibility.
+        assert!(arena_id == self.arena_id);
         assert!(idx < self.generations.len());
         if gener < self.generations[idx] {
             eprintln!("Warning: trying to free already freed entity {id:?}");
@@ -159,13 +230,14 @@ impl<T> Managed<T> {
     /// and may panic. This is considered API misuse and is on caller's
     /// responsibility.
     pub fn get(&self, id: Id<T>) -> Option<&T> {
-        let (idx, gener) = id.parts();
+        let (arena_id, idx, gener) = id.parts();
         // Panic: documented in the docstring. Caller's responsibility.
-        assert!(idx < self.store.len());
+        assert!(arena_id == self.arena_id);
+        assert!(idx < self.generations.len());
         if gener == self.generations[idx] {
             // Safety: if the generation matches, the value is guaranteed to be
             // in an initialized and valid state.
-            Some(unsafe { self.store[idx].assume_init_ref() })
+            Some(unsafe { self.stores[idx].assume_init_ref() })
         } else {
             None
         }
@@ -182,13 +254,14 @@ impl<T> Managed<T> {
     /// and may panic. This is considered API misuse and is on caller's
     /// responsibility.
     pub fn get_mut(&mut self, id: Id<T>) -> Option<&mut T> {
-        let (idx, gener) = id.parts();
+        let (arena_id, idx, gener) = id.parts();
         // Panic: documented in the docstring. Caller's responsibility.
-        assert!(idx < self.store.len());
+        assert!(arena_id == self.arena_id);
+        assert!(idx < self.generations.len());
         if gener == self.generations[idx] {
             // Safety: if the generation matches, the value is guaranteed to be
             // in an initialized and valid state.
-            Some(unsafe { self.store[idx].assume_init_mut() })
+            Some(unsafe { self.stores[idx].assume_init_mut() })
         } else {
             None
         }
@@ -201,15 +274,29 @@ impl<T> Managed<T> {
             .map(|gener| gener & 1 == 0)
             .unwrap_or(false)
     }
+
+    pub fn upcast(id: Id<T>) -> Id<I> {
+        Id {
+            id: id.id,
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn downcast(id: Id<I>) -> Id<T> {
+        Id {
+            id: id.id,
+            _marker: PhantomData,
+        }
+    }
 }
 
-impl<T> Drop for Managed<T> {
+impl<T, I> Drop for Managed<T, I> {
     fn drop(&mut self) {
-        for idx in 0..self.store.len() {
+        for idx in 0..self.stores.len() {
             if self.is_idx_live(idx) {
                 // Safety: `is_idx_live` examines the generation, and guarantees
                 // the value is in an initialized and valid state.
-                unsafe { self.store[idx].assume_init_drop() };
+                unsafe { self.stores[idx].assume_init_drop() };
             }
         }
     }
@@ -225,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_managed() {
-        let mut managed = Managed::default();
+        let mut managed = Managed::<_, Erased>::new(1);
 
         assert_eq!(managed.is_idx_live(0), false);
         assert_eq!(managed.is_idx_live(1), false);
@@ -257,7 +344,7 @@ mod tests {
     #[test]
     fn test_id() {
         struct Dummy;
-        let id: Id<Dummy> = Id::new(3, 5);
+        let id: Id<Dummy> = Id::new(1, 3, 5);
         let _id2 = id.clone();
         let _id3 = id; // using Copy trait
         assert!(id.eq(&_id2)); // Using Eq trait
@@ -276,7 +363,7 @@ mod tests {
 
     #[test]
     fn managed_drop_on_free() {
-        let mut managed = Managed::default();
+        let mut managed = Managed::<_, Erased>::new(1);
         let id = managed.alloc(String::from("Hello, World!"));
         managed.defer_free(id);
         managed.reap_deferred_now();
@@ -284,7 +371,7 @@ mod tests {
 
     #[test]
     fn managed_drop_on_container_drop() {
-        let mut managed = Managed::default();
+        let mut managed = Managed::<_, Erased>::new(1);
         let _ = managed.alloc(String::from("Hello, World!"));
         drop(managed)
     }

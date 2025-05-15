@@ -719,6 +719,45 @@ fn test_memory_usage_invalidation() {
     //vec.push(100); // Miri: UB!
 }
 
+#[test]
+fn test_alloc_str_slice() {
+    let mut arena = ArenaGuard::new();
+    let str = arena.alloc_str("Hello, world!");
+    assert_eq!(str, "Hello, world!");
+}
+
+#[test]
+fn test_alloc_string() {
+    let mut arena = ArenaGuard::new();
+    let string = arena.alloc_string("Hello");
+    assert_eq!(string, "Hello");
+    string.push_str(", world!");
+    assert_eq!(string, "Hello, world!");
+}
+
+#[test]
+fn test_sink() {
+    let mut arena = ArenaGuard::new();
+    let _ = arena.alloc_val(123);
+    let mut sink = arena.alloc_sink();
+    let a = sink.push(1);
+    *a = 99;
+    assert_eq!(&*sink, &[99]);
+    sink[0] = 101;
+    for i in 2..50 {
+        sink.push(i);
+    }
+
+    let slice = sink.into_slice();
+    let _ = arena.alloc_val(3); // Arena is usable again!
+    let mut expected = Vec::new();
+    for i in 1..50 {
+        expected.push(i);
+    }
+    expected[0] = 101;
+    assert_eq!(slice, &expected)
+}
+
 // Expect: error[E0499]: cannot borrow `alloc` as mutable more than once at a time
 /// Test: getting memory usage invalidates the arena
 /// ```compile_fail

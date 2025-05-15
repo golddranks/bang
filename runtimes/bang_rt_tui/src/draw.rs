@@ -1,6 +1,10 @@
 use std::io::{StdoutLock, Write};
 
-use bang_core::draw::{Cmd, DrawFrame};
+use bang_core::{
+    alloc::{Id, Mem},
+    draw::{Cmd, DrawFrame},
+    ffi::{RtCtx, Tex},
+};
 use bang_rt_common::{die, error::OrDie};
 
 const CSI: &str = "\x1b[";
@@ -36,7 +40,7 @@ pub fn draw(frame: &DrawFrame, output_stream: &mut StdoutLock<'static>, buf: &mu
     let chars = "████";
     for cmd in frame.cmds {
         match cmd {
-            Cmd::DrawSQuads { pos, .. } => {
+            Cmd::DrawSQuads { pos, .. } | Cmd::DrawDummies { pos } => {
                 for pos in pos.iter() {
                     let row = ((pos.y + 200.0) / 20.0) as u32;
                     let col = ((pos.x + 200.0) / 10.0) as u32;
@@ -49,4 +53,8 @@ pub fn draw(frame: &DrawFrame, output_stream: &mut StdoutLock<'static>, buf: &mu
             }
         }
     }
+}
+
+pub fn load_textures<'f>(_: &mut RtCtx, _: &[&str], _: &mut Mem<'f>) -> &'f [Id<Tex>] {
+    unimplemented!()
 }

@@ -3,6 +3,7 @@ use std::time::Duration;
 use std::{io, ops::Not, os::unix::io::AsRawFd};
 
 use bang_core::Config;
+use bang_core::ffi::RtCtx;
 use bang_rt_common::die;
 use bang_rt_common::end::Ender;
 use bang_rt_common::error::OrDie;
@@ -124,6 +125,7 @@ pub struct Window<'l> {
 
 impl<'l> Window<'l> {
     pub fn init(
+        _rt_ctx: &mut RtCtx,
         input_gatherer: InputGatherer<'l>,
         draw_receiver: DrawReceiver<'l>,
         ender: &'l Ender,

@@ -1,6 +1,6 @@
 use std::{fmt::Debug, mem::transmute};
 
-pub use guard::ArenaGuard;
+pub use guard::{ArenaGuard, Sink};
 pub use managed::{Id, Managed};
 
 mod guard;
@@ -21,10 +21,10 @@ struct ErasedMax {
     _padding: u128,
 }
 
-/// ErasedMin is used when returning a pointer to a slice. By being minimally
+/// Erased is used when returning a pointer to a slice. By being minimally
 /// aligned (to 1 byte), it is compatible with temporarily representing a
 /// pointer to any type.
-struct ErasedMin {
+pub struct Erased {
     _padding: u8,
 }
 
@@ -53,32 +53,38 @@ impl MemoryUsage {
 #[derive(Debug)]
 pub struct Arena {
     pub alloc_seq: usize,
-    arena: ArenaGuard<'static>,
+    guard: ArenaGuard<'static>,
 }
 
 impl Default for Arena {
     fn default() -> Self {
         Self {
             alloc_seq: 0,
-            arena: ArenaGuard::new(),
+            guard: ArenaGuard::new(),
         }
     }
 }
 
 impl Arena {
     pub fn memory_usage(&mut self) -> MemoryUsage {
-        unsafe { self.arena.memory_usage() }
+        unsafe { self.guard.memory_usage() }
     }
 
-    pub fn fresh_arena<'a>(&'a mut self, seq: usize) -> &'a mut ArenaGuard<'a> {
-        self.alloc_seq = seq;
-        unsafe { self.arena.reset(seq) };
+    /// Gets ArenaGuard that has the lifetime equivalent to the borrowed self
+    /// instead of 'static, which is a placeholder when the guard is not in use.
+    fn guard_with_short_lifetime<'a>(&'a mut self) -> &'a mut ArenaGuard<'a> {
         // Safety: This lifetime transmutation is safe because:
         // 1. We are only changing the lifetime parameter, not the type structure
         // 2. The arena's 'static lifetime is being shortened to match self's lifetime 'a
         // 3. This ensures the arena cannot be used beyond the lifetime of self
         // 4. The Rust borrow checker then prevents accessing the returned Vec references
         //    after a new arena is created (as demonstrated by compile_fail tests)
-        unsafe { transmute(&mut self.arena) }
+        unsafe { transmute(&mut self.guard) }
+    }
+
+    pub fn fresh_arena<'a>(&'a mut self, seq: usize) -> &'a mut ArenaGuard<'a> {
+        self.alloc_seq = seq;
+        unsafe { self.guard.reset(seq) };
+        self.guard_with_short_lifetime()
     }
 }

@@ -14,14 +14,14 @@ TUI_RT_SRC := $(wildcard runtimes/bang_rt_tui/src/*.rs)
 
 # Run and test targets
 
-macos: target/debug/libdemo_impl.dylib macos_rt assets
-	cargo run --bin macos_runner target/debug/libdemo_impl.dylib
+macos: target/debug/libdemo_main.dylib macos_rt assets
+	cargo run --bin macos_runner target/debug/libdemo_main.dylib
 
-tui: target/debug/libdemo_impl.dylib tui_rt assets
-	cargo run --bin tui_runner target/debug/libdemo_impl.dylib
+tui: target/debug/libdemo_main.dylib tui_rt assets
+	cargo run --bin tui_runner target/debug/libdemo_main.dylib
 
 static_demo: macos_rt assets
-	cargo run --bin demo_dist
+	cargo run --bin demo_static
 
 miri:
 	cargo miri test
@@ -41,16 +41,16 @@ macos_rt: $(MACOS_RT_SRC) core target/shaders.metallib
 tui_rt: $(TUI_RT_SRC) core
 	cargo build -p bang_rt_tui
 
-target/debug/libdemo_impl.dylib: core
-	cargo build -p demo_impl
+target/debug/libdemo_main.dylib: core
+	cargo build -p demo_main
 
 target/shaders.metallib: runtimes/bang_rt_macos/src/shaders.metal | target
 	xcrun -sdk macosx metal -o target/shaders.ir -c $<
 	xcrun -sdk macosx metallib -o $@ target/shaders.ir
 
 target/tests/lib%.dylib: bang_rt_common/tests/%/src/*.rs | target/tests
-	cargo build -p $(basename $(notdir $@)) --features export
-	cp target/debug/lib$(basename $(notdir $@)).dylib $@
+	cargo build -p $*
+	cp target/debug/lib$*.dylib $@
 
 tarpaulin-report.html:	macos_rt \
 						core \

@@ -2,7 +2,9 @@ use std::ffi::CString;
 
 use bang_core::{
     Config,
+    alloc::{Id, Mem},
     draw::{AsBytes, Cmd, ScreenPos},
+    ffi::{RtCtx, Tex},
 };
 use bang_rt_common::{
     die,
@@ -11,14 +13,17 @@ use bang_rt_common::{
     error::OrDie,
 };
 
-use crate::objc::{
-    NSString, NSUInteger, Sel, TypedCls, TypedObj,
-    wrappers::{
-        CGSize, MTKView, MTKViewDelegate, MTLBlendFactor, MTLBuffer, MTLClearColor,
-        MTLCommandQueue, MTLCompileOptions, MTLDevice, MTLOrigin, MTLPixelFormat, MTLPrimitiveType,
-        MTLRegion, MTLRenderCommandEncoder, MTLRenderPipelineDescriptor, MTLRenderPipelineState,
-        MTLResourceOptions, MTLSize, MTLTexture, MTLTextureDescriptor, MTLTextureType,
-        MTLVertexDescriptor, MTLVertexFormat, NSUrl,
+use crate::{
+    RtState,
+    objc::{
+        NSString, NSUInteger, Sel, TypedCls, TypedObj,
+        wrappers::{
+            CGSize, MTKView, MTKViewDelegate, MTLBlendFactor, MTLBuffer, MTLClearColor,
+            MTLCommandQueue, MTLCompileOptions, MTLDevice, MTLOrigin, MTLPixelFormat,
+            MTLPrimitiveType, MTLRegion, MTLRenderCommandEncoder, MTLRenderPipelineDescriptor,
+            MTLRenderPipelineState, MTLResourceOptions, MTLSize, MTLTexture, MTLTextureDescriptor,
+            MTLTextureType, MTLVertexDescriptor, MTLVertexFormat, NSUrl,
+        },
     },
 };
 
@@ -71,8 +76,13 @@ extern "C" fn draw(mut dele: TypedObj<DrawState>, _sel: Sel, view: MTKView::IPtr
     rencoder.set_rend_pl_state(state.rend_pl_state);
     for cmd in frame.cmds {
         match cmd {
-            &Cmd::DrawSQuads { pos, texture } => {
-                let bound_paltex = &state.bound_paltex[texture.0 as usize];
+            &Cmd::DrawDummies { pos } => {
+                let bound_paltex = &state.bound_paltex[0];
+                globals.quad_size = bound_paltex.quad_size;
+                draw_squad(&rencoder, state.quad_vtex_buf, &globals, pos, bound_paltex);
+            }
+            &Cmd::DrawSQuads { pos, tex } => {
+                let bound_paltex = &state.bound_paltex[tex.idx()];
                 globals.quad_size = bound_paltex.quad_size;
                 draw_squad(&rencoder, state.quad_vtex_buf, &globals, pos, bound_paltex);
             }
@@ -233,7 +243,7 @@ impl Vertex {
 unsafe impl AsBytes for Vertex {}
 
 #[derive(Debug)]
-struct BoundPalTex {
+pub struct BoundPalTex {
     quad_size: [u16; 2],
     pal: MTLTexture::PPtr,
     tex: MTLTexture::PPtr,
@@ -312,4 +322,15 @@ fn draw_squad(
     rencoder.set_vtex_bytes(pos, 2);
     pal.bind_frag(rencoder);
     rencoder.draw_primitives(MTLPrimitiveType::TriangleStrip, 0, 4, pos.len());
+}
+
+pub fn load_textures<'f>(rt_ctx: &mut RtCtx, tex: &[&str], mem: &mut Mem<'f>) -> &'f [Id<Tex>] {
+    let mut ids = mem.sink();
+    let rt = RtState::unwrap_from(rt_ctx);
+    for &t in tex {
+        let tex = PalTex::from_encoded(&std::fs::read(t).unwrap()).unwrap();
+        let bound_tex = BoundPalTex::new(&tex, &mut rt.device);
+        ids.push(rt.textures.alloc_upcast(bound_tex));
+    }
+    ids.into_slice()
 }

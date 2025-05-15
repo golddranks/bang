@@ -2,19 +2,20 @@ use std::{ffi::CString, marker::PhantomData};
 
 use bang_core::{
     Config,
+    ffi::RtCtx,
     input::{Key, KeyState},
 };
 use bang_rt_common::{die, draw::DrawReceiver, end::Ender, error::OrDie, input::InputGatherer};
 
 use crate::{
+    RtState,
     draw::DrawState,
     objc::{
         NSString, OPtr, Sel, TypedCls, TypedObj, TypedPtr,
         wrappers::{
-            CGPoint, CGRect, CGSize, MTKView, MTLDevice, NSApplication,
-            NSApplicationActivationPolicy, NSApplicationDelegate, NSApplicationTerminateReply,
-            NSBackingStoreType, NSEvent, NSMenu, NSMenuItem, NSResponder, NSWindow,
-            NSWindowDelegate, NSWindowStyleMask, sel,
+            CGPoint, CGRect, CGSize, MTKView, NSApplication, NSApplicationActivationPolicy,
+            NSApplicationDelegate, NSApplicationTerminateReply, NSBackingStoreType, NSEvent,
+            NSMenu, NSMenuItem, NSResponder, NSWindow, NSWindowDelegate, NSWindowStyleMask, sel,
         },
     },
     timer::TimeConverter,
@@ -135,11 +136,14 @@ pub struct Window<'l> {
 
 impl<'l> Window<'l> {
     pub fn init(
+        rt_ctx: &mut RtCtx,
         input_gatherer: InputGatherer,
         draw_receiver: DrawReceiver<'l>,
         config: &'l Config,
         ender: &'l Ender,
     ) -> Self {
+        let rt = RtState::unwrap_from(rt_ctx);
+
         let app_dele_cls = AppState::init_delegate_cls();
         let win_dele_cls = WinState::init_delegate_cls();
         let view_dele_cls = DrawState::init_delegate_cls();
@@ -169,11 +173,15 @@ impl<'l> Window<'l> {
         let win = my_win.alloc_upcasted(MyNSWindow::new(input_gatherer));
         let win = NSWindow::IPtr::init(win, rect, style_mask, NSBackingStoreType::Buffered, false);
 
-        let device = MTLDevice::PPtr::get_default();
-
         let alloc = MTKView::alloc();
-        let view = MTKView::IPtr::init(alloc, rect, device);
-        let dele = DrawState::new(device, view.color_pixel_fmt(), draw_receiver, config, ender);
+        let view = MTKView::IPtr::init(alloc, rect, rt.device);
+        let dele = DrawState::new(
+            rt.device,
+            view.color_pixel_fmt(),
+            draw_receiver,
+            config,
+            ender,
+        );
         view.set_preferred_fps(120);
         view.set_delegate(view_dele_cls.alloc_init_upcasted(dele));
         win.set_delegate(win_dele_cls.alloc_init_upcasted(WinState { win }));

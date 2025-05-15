@@ -1,6 +1,17 @@
-use std::{fmt::Debug, marker::PhantomData, mem::needs_drop, ptr::copy, slice};
+use std::{
+    fmt::Debug,
+    marker::PhantomData,
+    mem::{needs_drop, transmute},
+    ops::{Deref, DerefMut},
+    ptr::copy,
+    slice,
+};
 
-use crate::{ErasedMax, MemoryUsage, val, vec};
+use crate::{
+    ErasedMax, MemoryUsage,
+    val::{self, ByAlign},
+    vec,
+};
 
 /// Short-lived arena implementation
 ///
@@ -170,10 +181,32 @@ impl<'a> ArenaGuard<'a> {
         self.alloc_vec_ignore_drop()
     }
 
+    pub fn alloc_string(&mut self, str: &str) -> &'a mut String {
+        // Panics: Static assert, so no runtime panics are possible
+        const { assert!(size_of::<String>() == size_of::<Vec<u8>>()) }
+        const { assert!(align_of::<String>() == align_of::<Vec<u8>>()) }
+
+        let vec: &mut Vec<u8> = self.alloc_vec_ignore_drop();
+        // Safety: String is defined as `pub struct String { vec: Vec<u8> }`
+        // We ensure statically that the size and alignment of String and
+        // Vec<u8> are the same. The allocated buffer also shares the
+        // alignment and size of 1 byte, so the layouts are compatible.
+        let s = unsafe { transmute::<&mut Vec<u8>, &mut String>(vec) };
+        s.push_str(str);
+        s
+    }
+
     pub fn alloc_slice<T>(&mut self, slice: &[T]) -> &'a mut [T] {
         // Panics: Static assert, so no runtime panics are possible
         const { assert!(!needs_drop::<T>()) };
         self.alloc_slice_ignore_drop(slice)
+    }
+
+    pub fn alloc_str(&mut self, str: &str) -> &'a mut str {
+        let slice = self.alloc_slice_ignore_drop(str.as_bytes());
+        // Safety: `slice` originates from a `&str`, and is thus guaranteed
+        // to be valid UTF-8.
+        unsafe { str::from_utf8_unchecked_mut(slice) }
     }
 
     pub fn alloc_val<T>(&mut self, val: T) -> &'a mut T {
@@ -186,6 +219,21 @@ impl<'a> ArenaGuard<'a> {
         // Panics: Static assert, so no runtime panics are possible
         const { assert!(!needs_drop::<T>()) };
         self.alloc_iter_ignore_drop(iter)
+    }
+
+    pub fn alloc_sink<'s, T>(&'s mut self) -> Sink<'s, 'a, T> {
+        // Panics: Static assert, so no runtime panics are possible
+        const { assert!(!needs_drop::<T>()) };
+        self.alloc_sink_ignore_drop()
+    }
+
+    pub fn alloc_sink_ignore_drop<'s, T>(&'s mut self) -> Sink<'s, 'a, T> {
+        let by_align = self.get_val_align(align_of::<T>());
+        Sink {
+            len: 0,
+            storage: by_align,
+            _marker: PhantomData,
+        }
     }
 
     pub fn alloc_iter_ignore_drop<T>(
@@ -334,5 +382,100 @@ impl<'a> ArenaGuard<'a> {
         self.val_align_4.reset();
         self.val_align_8.reset();
         self.val_align_16.reset();
+    }
+}
+
+pub struct Sink<'s, 'a, T> {
+    len: usize,
+    storage: &'s mut ByAlign,
+    _marker: PhantomData<&'a mut T>,
+}
+
+/// Sink is an allocator you can push values of same type into. The values
+/// are stored continuously, and after allocating all the objects, sink can be
+/// turned into a slice. Sink reserves `AreaGuard` until it is dropped or
+/// turned into a slice.
+impl<'s, 'a, T> Sink<'s, 'a, T> {
+    pub fn push(&mut self, val: T) -> &mut T {
+        let byte_size = size_of::<T>();
+        let erased_ptr = unsafe { self.storage.allocate_continuous(self.len, byte_size) };
+        let typed_ptr = erased_ptr as *mut T;
+        self.len += 1;
+        // Safety:
+        // Compatible layout: erased_ptr has size and alignment that is ensured
+        // to be compatible with T.
+        // Exclusive access: `Sink` has, for its whole lifetime, exclusive
+        // access to the memory of `ArenaGuard`, so the memory is not aliased.
+        // Lifetime: The returned slice is valid for the self lifetime, so it is
+        // invalidated as some other method of `Sink` is called; by the time
+        // there are further allocations that might move the slice, the slice
+        // returned by this method is already invalidated.
+        unsafe {
+            typed_ptr.write(val);
+            &mut *typed_ptr
+        }
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        let slice_end = self.storage.current_const() as *const T;
+        let slice_start = slice_end.wrapping_sub(self.len);
+        // Safety:
+        // Exclusive access: `Sink` has, for its whole lifetime, exclusive
+        // access to the memory of `ArenaGuard`, so the memory is not aliased.
+        // Continuous allocation: `allocate_continuous` ensures that the memory
+        // is allocated contiguously for the last `self.len` allocations made
+        // by `Sink`, so it's safe to create a slice from the start to the end.
+        // Lifetime: The returned slice is valid for the self lifetime, so it is
+        // invalidated as some other method of `Sink` is called; by the time
+        // there are further allocations that might move the slice, the slice
+        // returned by this method is already invalidated.
+        unsafe { slice::from_raw_parts(slice_start, self.len) }
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
+        let slice_end = self.storage.current_mut() as *mut T;
+        let slice_start = slice_end.wrapping_sub(self.len);
+        // Safety:
+        // Exclusive access: `Sink` has, for its whole lifetime, exclusive
+        // access to the memory of `ArenaGuard`, so the memory is not aliased.
+        // Continuous allocation: `allocate_continuous` ensures that the memory
+        // is allocated contiguously for the last `self.len` allocations made
+        // by `Sink`, so it's safe to create a slice from the start to the end.
+        // Lifetime: The returned slice is valid for the self lifetime, so it is
+        // invalidated as some other method of `Sink` is called; by the time
+        // there are further allocations that might move the slice, the slice
+        // returned by this method is already invalidated.
+        unsafe { slice::from_raw_parts_mut(slice_start, self.len) }
+    }
+
+    pub fn into_slice(self) -> &'a mut [T] {
+        let slice_end = self.storage.current_mut() as *mut T;
+        let slice_start = slice_end.wrapping_sub(self.len);
+        // Safety:
+        // Exclusive access: `Sink` has, for its whole lifetime, exclusive
+        // access to the memory of `ArenaGuard`, so the memory is not aliased.
+        // Continuous allocation: `allocate_continuous` ensures that the memory
+        // is allocated contiguously for the last `self.len` allocations made
+        // by `Sink`, so it's safe to create a slice from the start to the end.
+        // Lifetime: The returned slice is valid for the arena lifetime 'a.
+        // This means it can outlive `Sink`. This is fine, because `Sink` is
+        // taken in by this method as an owned value, and will be dropped when
+        // this method returns, so no further allocations can be made that might
+        // move the slice.
+        unsafe { slice::from_raw_parts_mut(slice_start, self.len) }
+    }
+}
+
+impl<'s, 'a, T> Deref for Sink<'s, 'a, T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl<'s, 'a, T> DerefMut for Sink<'s, 'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_slice_mut()
     }
 }

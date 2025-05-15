@@ -124,9 +124,9 @@ fn main() {
         let path = Path::new(&path);
         let target_ext = OsStr::new("png");
         if path.is_dir() {
-            eprintln!("Looking for png files in {:?}.", &path);
-            for path in read_dir(&path).unwrap_or_else(|e| {
-                panic!("Failed to read directory: {:?}: {}", &path, e);
+            eprintln!("Looking for png files in {path:?}.");
+            for path in read_dir(path).unwrap_or_else(|e| {
+                panic!("Failed to read directory: {path:?}: {e}");
             }) {
                 let path = path.unwrap().path();
                 if let Some(ext) = path.extension()
@@ -139,7 +139,7 @@ fn main() {
             && let Some(ext) = path.extension()
             && ext == target_ext
         {
-            convert_file(&path);
+            convert_file(path);
         }
     } else {
         eprintln!("Converting input from stdin to stdout.");

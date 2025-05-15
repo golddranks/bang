@@ -1,4 +1,5 @@
-use arena::ArenaGuard;
+use arena::Sink;
+pub use arena::{Arena, ArenaGuard, Id, Managed};
 
 #[repr(C)]
 pub struct Mem<'frame> {
@@ -26,12 +27,24 @@ impl<'f> Mem<'f> {
         self.arena.alloc_slice(slice)
     }
 
+    pub fn str<T>(&mut self, str: &str) -> &'f mut str {
+        self.arena.alloc_str(str)
+    }
+
+    pub fn string<T>(&mut self, str: &str) -> &'f mut String {
+        self.arena.alloc_string(str)
+    }
+
     pub fn from_iter<T, I>(&mut self, iter: I) -> &'f mut [T]
     where
         I: IntoIterator<Item = T>,
         I::IntoIter: ExactSizeIterator,
     {
         self.arena.alloc_iter(iter.into_iter())
+    }
+
+    pub fn sink<'s, T>(&'s mut self) -> Sink<'s, 'f, T> {
+        self.arena.alloc_sink()
     }
 }
 

@@ -9,5 +9,5 @@ paltex = { path = "../libs/paltex" }
 arena = { path = "../libs/arena" }
 
 [dev-dependencies]
-test_normal_dylib = { path = "tests/test_normal_dylib" }
-test_panic_dylib = { path = "tests/test_panic_dylib" }
+test_normal_dylib = { path = "tests/test_normal_dylib", default-features = false }
+test_panic_dylib = { path = "tests/test_panic_dylib", default-features = false }

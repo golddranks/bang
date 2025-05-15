@@ -2,17 +2,11 @@
 
 ## Currently working on
 
-- Fix allocations:
-  - What about single allocatons with Drop?
-  - Life is hard without overlapping Vec lifetimes
+- Resource loading (textures)
 
 ## Short term
 
-- Memory allocation
-  - Long-term allocator, with IDs
-- Resource loading (textures)
 - Entity ID system
-- User-defined config + loading functions
 - Hot reloading
   - File watching
   - Function pointer swap

@@ -94,6 +94,16 @@ impl<'l> AllocManager<'l> {
         }
     }
 
+    pub fn retire_single(&mut self, seq: usize) {
+        self.in_use
+            .binary_search_by_key(&seq, |alloc| alloc.alloc_seq)
+            .map(|early_idx| {
+                let retired = self.in_use.remove(early_idx).expect("UNREACHABLE");
+                self.free_pool.push(retired);
+            })
+            .unwrap_or(());
+    }
+
     fn process_retired(&mut self) {
         let retired_up_to = self.shared.retired_seq_up_to.load(Ordering::SeqCst);
         let retired_early = self.shared.retired_seq_early.swap(0, Ordering::SeqCst);
@@ -104,13 +114,7 @@ impl<'l> AllocManager<'l> {
             self.free_pool.push(retired);
         }
         if retired_early > 0 {
-            self.in_use
-                .binary_search_by_key(&retired_early, |alloc| alloc.alloc_seq)
-                .map(|early_idx| {
-                    let retired = self.in_use.remove(early_idx).expect("UNREACHABLE");
-                    self.free_pool.push(retired);
-                })
-                .unwrap_or(());
+            self.retire_single(retired_early);
         }
     }
 

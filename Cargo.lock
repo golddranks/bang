@@ -91,19 +91,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "demo_dist"
+name = "demo_main"
+version = "0.1.0"
+dependencies = [
+ "bang_core",
+]
+
+[[package]]
+name = "demo_static"
 version = "0.1.0"
 dependencies = [
  "bang_rt_common",
  "bang_rt_macos",
- "demo_impl",
-]
-
-[[package]]
-name = "demo_impl"
-version = "0.1.0"
-dependencies = [
- "bang_core",
+ "demo_main",
 ]
 
 [[package]]

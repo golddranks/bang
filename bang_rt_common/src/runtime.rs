@@ -5,7 +5,10 @@ use std::{
     thread,
 };
 
-use bang_core::Config;
+use bang_core::{
+    Config,
+    ffi::{Logic, LogicInitReturn, RtCtx, SendableErasedPtr},
+};
 
 use crate::{
     alloc::{SharedAllocState, make_alloc_tools},
@@ -14,8 +17,8 @@ use crate::{
     end::Ender,
     error::OrDie,
     input::{InputGatherer, SharedInputState, make_input_tools},
-    load::{FrameLogic, get_symbols},
-    logic_loop,
+    load::dyn_load_logic,
+    logic_loop::{self, RunArgs},
 };
 
 pub trait Runtime {
@@ -23,6 +26,7 @@ pub trait Runtime {
     fn init_rt(&self);
     fn init_win<'l>(
         &self,
+        rt_ctx: &mut RtCtx,
         input_gatherer: InputGatherer<'l>,
         draw_receiver: DrawReceiver<'l>,
         ender: &'l Ender,
@@ -30,15 +34,16 @@ pub trait Runtime {
     ) -> Self::Window<'l>;
     fn run(win: &mut Self::Window<'_>);
     fn notify_end(ender: &Ender);
+    fn new_ctx(&self) -> RtCtx;
 }
 
 pub fn start_dynamic<RT: Runtime>(rt: RT, lib: &CStr) {
-    let (frame_logic, config) = get_symbols(lib);
-    start_rt(rt, frame_logic, &config);
+    let logic = dyn_load_logic(lib);
+    start_rt(rt, logic);
 }
 
-pub fn start_static<RT: Runtime>(rt: RT, frame_logic: impl FrameLogic, config: &'static Config) {
-    start_rt(rt, frame_logic, config);
+pub fn start_static<RT: Runtime>(rt: RT, logic: impl Logic) {
+    start_rt(rt, logic);
 }
 
 fn downcast(msg: &Box<dyn Any + Send>) -> &str {
@@ -51,37 +56,51 @@ fn downcast(msg: &Box<dyn Any + Send>) -> &str {
     }
 }
 
-pub fn start_rt<RT: Runtime>(rt: RT, frame_logic: impl FrameLogic, config: &Config) {
+pub fn start_rt<RT: Runtime>(rt: RT, logic: impl Logic) {
     rt.init_rt();
+
+    let mut shared_alloc_state = SharedAllocState::default();
+    let (mut alloc_manager, mut alloc_retirer, alloc_cleanup) =
+        make_alloc_tools(&mut shared_alloc_state);
+
+    let mut rt_ctx = rt.new_ctx();
+    let mut mem = alloc_manager.get_alloc();
+    let LogicInitReturn {
+        logic_state,
+        config,
+    } = logic.init_raw(&mut mem, &mut rt_ctx);
+    let seq = mem.alloc_seq;
+    alloc_manager.retire_single(seq);
 
     let mut shared_input_state = SharedInputState::default();
     let (input_gatherer, input_consumer) = make_input_tools(&mut shared_input_state);
-    let mut shared_alloc_state = SharedAllocState::default();
-    let (alloc_manager, mut alloc_retirer, alloc_cleanup) =
-        make_alloc_tools(&mut shared_alloc_state);
     let mut shared_draw_state = SharedDrawState::default();
     let (draw_sender, draw_receiver) = make_draw_tools(&mut shared_draw_state, &mut alloc_retirer);
     let ender = Ender::new(RT::notify_end);
-    let mut window = rt.init_win(input_gatherer, draw_receiver, &ender, config);
+    let mut window = rt.init_win(&mut rt_ctx, input_gatherer, draw_receiver, &ender, &config);
 
+    let ender = &ender;
     let mut logic_err = None;
     let mut rt_err = None;
+    let moved_logic_err = &mut logic_err;
+
+    let args = RunArgs {
+        logic,
+        rt_ctx: &mut rt_ctx,
+        state: SendableErasedPtr(logic_state),
+        input_consumer,
+        sender: draw_sender,
+        alloc_manager,
+        ender,
+        config: &config,
+    };
 
     thread::scope(|s| {
         thread::Builder::new()
             .name("logic_loop".to_owned())
-            .spawn_scoped(s, || {
-                catch_unwind(AssertUnwindSafe(|| {
-                    logic_loop::run(
-                        frame_logic,
-                        input_consumer,
-                        draw_sender,
-                        alloc_manager,
-                        &ender,
-                        config,
-                    )
-                }))
-                .unwrap_or_else(|err| logic_err = Some(err));
+            .spawn_scoped(s, move || {
+                catch_unwind(AssertUnwindSafe(|| logic_loop::run(args)))
+                    .unwrap_or_else(|err| *moved_logic_err = Some(err));
                 ender.soft_quit();
             })
             .or_(die!("Unable to create thread"));
@@ -115,29 +134,29 @@ pub fn start_rt<RT: Runtime>(rt: RT, frame_logic: impl FrameLogic, config: &Conf
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{ops::Not, time::Instant};
+pub(crate) mod tests {
+    use std::{ops::Not, ptr::null_mut, time::Instant};
 
-    use bang_core::input::{Key, KeyState};
+    use arena::Id;
+    use bang_core::{
+        alloc::Mem,
+        ffi::{RtKind, Tex},
+        input::{Key, KeyState},
+    };
 
-    use test_normal_dylib::test_frame_logic_normal;
-    use test_panic_dylib::test_frame_logic_panicking;
-
-    use crate::load::InlinedFrameLogic;
+    use test_normal_dylib::TestLogic as NormalTestLogic;
+    use test_panic_dylib::TestLogic as PanicTestLogic;
 
     use super::*;
-
-    const TEST_CONFIG: Config = Config {
-        name: "Test",
-        resolution: (800, 600),
-        logic_fps: 60,
-        scale: 1,
-    };
 
     #[derive(Default)]
     struct TestRT {
         crash: bool,
         synchro_crash: bool,
+    }
+
+    pub fn load_textures<'f>(_: &mut RtCtx, _: &[&str], _: &mut Mem<'f>) -> &'f [Id<Tex>] {
+        unimplemented!()
     }
 
     struct TestWindow<'l> {
@@ -155,6 +174,7 @@ mod tests {
 
         fn init_win<'l>(
             &self,
+            _: &mut RtCtx,
             input_gatherer: InputGatherer<'l>,
             draw_receiver: DrawReceiver<'l>,
             ender: &'l Ender,
@@ -192,6 +212,15 @@ mod tests {
         }
 
         fn notify_end(_: &Ender) {}
+
+        fn new_ctx(&self) -> RtCtx {
+            RtCtx {
+                frame: 0,
+                rt_kind: RtKind::Test,
+                load_textures_ptr: load_textures,
+                rt_state: SendableErasedPtr(null_mut()),
+            }
+        }
     }
 
     #[test]
@@ -203,39 +232,35 @@ mod tests {
 
     #[test]
     fn test_runtime_inline() {
-        let fl = InlinedFrameLogic::new(test_frame_logic_normal);
         let rt = TestRT::default();
-        start_static(rt, fl, &TEST_CONFIG);
+        start_static(rt, NormalTestLogic);
     }
 
     #[test]
     #[should_panic(expected = "Logic loop panicked")]
     fn test_logic_panic() {
-        let fl = InlinedFrameLogic::new(test_frame_logic_panicking);
         let rt = TestRT::default();
-        start_rt(rt, fl, &TEST_CONFIG);
+        start_rt(rt, PanicTestLogic);
     }
 
     #[test]
     #[should_panic(expected = "Runtime loop panicked")]
     fn test_rt_panic() {
-        let fl = InlinedFrameLogic::new(test_frame_logic_normal);
         let rt = TestRT {
             crash: true,
             synchro_crash: false,
         };
-        start_rt(rt, fl, &TEST_CONFIG);
+        start_rt(rt, NormalTestLogic);
     }
 
     #[test]
     #[should_panic(expected = "Runtime and logic loops both panicked")]
     fn test_rt_logic_panic() {
-        let fl = InlinedFrameLogic::new(test_frame_logic_panicking);
         let rt = TestRT {
             crash: false,
             synchro_crash: true,
         };
-        start_rt(rt, fl, &TEST_CONFIG);
+        start_rt(rt, PanicTestLogic);
     }
 
     #[test]
