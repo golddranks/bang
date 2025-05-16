@@ -1,5 +1,5 @@
 use super::*;
-use std::ptr::addr_eq;
+use std::{mem::transmute_copy, ptr::addr_eq};
 
 #[test]
 fn test_no_allocation() {
@@ -741,17 +741,55 @@ fn test_sink() {
 fn test_string_vec_layout_comp() {
     assert_eq!(size_of::<String>(), size_of::<Vec<u8>>());
     assert_eq!(align_of::<String>(), align_of::<Vec<u8>>());
-    let mut string = String::with_capacity(69);
-    let mut vec = Vec::with_capacity(69);
-    string.push_str("Hello, world!");
-    vec.extend_from_slice(b"Hello, world!");
-    let string_bytes: [usize; 3] = unsafe { transmute(string) };
-    let vec_bytes: [usize; 3] = unsafe { transmute(vec) };
-    let mut same_value = 0;
-    same_value += (string_bytes[0] == vec_bytes[0]) as u8;
-    same_value += (string_bytes[1] == vec_bytes[1]) as u8;
-    same_value += (string_bytes[2] == vec_bytes[2]) as u8;
-    assert_eq!(same_value, 2); // The len and capacity should match, the ptr shouldn't.
+    let lorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit!!!!!";
+
+    let check_layout = |len, cap| {
+        let mut string = String::with_capacity(cap);
+        let mut vec = Vec::with_capacity(cap);
+        string.push_str(&lorem[..len]);
+        vec.extend_from_slice(lorem[..len].as_bytes());
+
+        let string_bytes: [usize; 3] = unsafe { transmute_copy(&string) };
+        let vec_bytes: [usize; 3] = unsafe { transmute_copy(&vec) };
+
+        // To not assume the field order, we just check the number of matching
+        // usize-sized byte spans
+        let mut same_value = 0;
+        same_value += (string_bytes[0] == vec_bytes[0]) as u8;
+        same_value += (string_bytes[1] == vec_bytes[1]) as u8;
+        same_value += (string_bytes[2] == vec_bytes[2]) as u8;
+
+        // The len and capacity should match, the ptr shouldn't, expect possibly
+        // by accident if there is no allocation
+        assert!(same_value >= 2);
+    };
+
+    // For Miri testing
+    let check_alloc_behavior = |len, cap| {
+        let mut string = String::with_capacity(cap);
+        let mut vec = Vec::with_capacity(cap);
+        string.push_str(&lorem[..len]);
+        vec.extend_from_slice(lorem[..len].as_bytes());
+        let tx_string = unsafe { transmute::<&mut Vec<u8>, &mut String>(&mut vec) };
+        let tx_vec = unsafe { transmute::<&mut String, &mut Vec<u8>>(&mut string) };
+
+        // Deallocating the old and allocating new buffer as transmuted
+        tx_string.push_str(lorem);
+        tx_vec.extend_from_slice(lorem.as_bytes());
+
+        // Dropping the new buffer back as non-transmuted
+        drop(string);
+        drop(vec);
+    };
+
+    // Test for many len-cap pairs to catch corner cases such as possible
+    // small-string optimization, no allocation with 0-sized strings etc.
+    for cap in 0..lorem.len() {
+        for len in 0..cap {
+            check_layout(len, cap);
+            check_alloc_behavior(len, cap);
+        }
+    }
 }
 
 // Expect: error[E0499]: cannot borrow `alloc` as mutable more than once at a time

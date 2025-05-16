@@ -6,24 +6,8 @@ use std::{
     time::Duration,
 };
 
-use arena::Arena;
+use arena::{Arena, SharedAllocState};
 use bang_core::alloc::Mem;
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct SharedAllocState {
-    retired_seq_up_to: AtomicUsize,
-    retired_seq_early: AtomicUsize,
-}
-
-impl Default for SharedAllocState {
-    fn default() -> Self {
-        Self {
-            retired_seq_up_to: AtomicUsize::new(0),
-            retired_seq_early: AtomicUsize::new(0),
-        }
-    }
-}
 
 #[derive(Debug)]
 #[repr(C)]

@@ -8,7 +8,7 @@ use std::{
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-use crate::{Erased, SharedAllocState};
+use crate::{Erased, SharedAllocState, check_alignment_static, check_drop_static};
 
 struct Store<T> {
     alloc_seq: u64,
@@ -107,6 +107,9 @@ where
     T: Copy,
 {
     fn new(shared: &'l SharedAllocState) -> Self {
+        check_drop_static::<T>();
+        check_alignment_static::<T>();
+
         let arena_id = shared.managed_arena_seq.fetch_add(1, Ordering::Relaxed);
         let alloc_seq = shared.alloc_seq.load(Ordering::Acquire);
         let mut stores = VecDeque::new();

@@ -1,7 +1,12 @@
-use std::{fmt::Debug, mem::transmute};
+use std::{
+    fmt::Debug,
+    mem::{needs_drop, transmute},
+    sync::atomic::{AtomicU16, AtomicU64, Ordering},
+};
 
 mod guard;
 //mod managed;
+mod managed_sync;
 #[cfg(any(test, doctest))]
 mod tests;
 mod val;
@@ -9,6 +14,7 @@ mod vec;
 
 pub use guard::{ArenaGuard, Sink};
 //pub use managed::{Id, Managed};
+pub use managed_sync::{Id, Managed};
 
 // Placeholder types for type erasure
 //
@@ -86,5 +92,56 @@ impl Arena {
         self.alloc_seq = seq;
         unsafe { self.guard.reset(seq) };
         self.guard_with_short_lifetime()
+    }
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct SharedAllocState {
+    pub managed_arena_seq: AtomicU16,
+    pub alloc_seq: AtomicU64,
+    pub retired_seq_up_to: AtomicU64,
+    pub retired_seq_early: AtomicU64,
+}
+
+impl Default for SharedAllocState {
+    fn default() -> Self {
+        Self {
+            managed_arena_seq: AtomicU16::new(0),
+            alloc_seq: AtomicU64::new(0),
+            retired_seq_up_to: AtomicU64::new(0),
+            retired_seq_early: AtomicU64::new(0),
+        }
+    }
+}
+
+impl SharedAllocState {
+    fn current_seq(&self) -> u64 {
+        self.alloc_seq.load(Ordering::Acquire)
+    }
+}
+
+const fn check_alignment_static<T>() {
+    // Panics: Static assert, so no runtime panics are possible
+    const {
+        let align = align_of::<T>();
+        assert!(align.is_power_of_two(), "Align must be power of two!");
+        assert!(align >= 1, "Align must be at least 1");
+        assert!(align <= 16, "Align must be at most 16");
+    };
+}
+
+const fn check_drop_static<T>() {
+    // Panics: Static assert, so no runtime panics are possible
+    const { assert!(!needs_drop::<T>(), "Can't allocate type with Drop!") };
+}
+
+const fn check_string_vec_layout_static() {
+    // Panics: Static assert, so no runtime panics are possible
+    // The field offset layout is not possible to check with
+    // compile-time assertions, but it is additionally checked in tests
+    const {
+        assert!(size_of::<String>() == size_of::<Vec<u8>>());
+        assert!(align_of::<String>() == align_of::<Vec<u8>>())
     }
 }
