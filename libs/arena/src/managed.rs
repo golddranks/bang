@@ -104,7 +104,7 @@ impl<T> Id<T> {
     }
 }
 
-impl<T, I> Managed<T, I>
+impl<'l, T, I> Managed<'l, T, I>
 where
     MaybeUninit<T>: Clone,
 {
@@ -138,10 +138,13 @@ where
     fn grow(&mut self) -> &mut Store<T> {
         let full_store = self.current_store();
         let mut store = Vec::with_capacity(full_store.store.capacity() * 2);
+        let mut generations = Vec::with_capacity(store.len());
         store.extend(full_store.store.iter().cloned());
+        generations.extend(full_store.generations.iter().cloned());
         let new_store = Store {
-            alloc_seq: self.alloc_seq,
+            alloc_seq: self.shared.alloc_seq.load(),
             store,
+            generations,
         };
         self.stores.push_front(new_store);
         // UNREACHABLE: we just added an item, so `self.stores` is never empty

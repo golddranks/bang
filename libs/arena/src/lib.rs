@@ -1,14 +1,14 @@
 use std::{fmt::Debug, mem::transmute};
 
-pub use guard::{ArenaGuard, Sink};
-pub use managed::{Id, Managed};
-
 mod guard;
-mod managed;
+//mod managed;
 #[cfg(any(test, doctest))]
 mod tests;
 mod val;
 mod vec;
+
+pub use guard::{ArenaGuard, Sink};
+//pub use managed::{Id, Managed};
 
 // Placeholder types for type erasure
 //

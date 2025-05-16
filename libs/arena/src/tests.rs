@@ -297,7 +297,7 @@ fn test_zero_sized_val() {
 #[test]
 fn test_zero_sized_vec() {
     let mut alloc = Arena::default();
-    let arena = alloc.fresh_arena(0);
+    let arena = alloc.fresh_arena(1);
 
     let vec = arena.alloc_vec::<()>();
 
@@ -361,7 +361,7 @@ fn test_val_memory_usage() {
     assert_eq!(usage1.content_bytes, expected_content1);
 
     // Get a new arena (which resets the allocations)
-    let arena2 = alloc.fresh_arena(1);
+    let arena2 = alloc.fresh_arena(3);
 
     // Allocate again
     let _v3 = arena2.alloc_val(300u32);
@@ -420,27 +420,6 @@ fn test_vector_capacity_reuse() {
         vec_f32.capacity() >= 500,
         "Vectors with same alignment should share capacity pool"
     );
-}
-
-#[repr(align(32))]
-struct Test;
-
-#[test]
-#[should_panic(expected = "Unsupported alignment")]
-fn test_unsupported_alignment_vec() {
-    let mut alloc = Arena::default();
-    let arena = alloc.fresh_arena(1);
-
-    let _ = arena.alloc_vec::<Test>();
-}
-
-#[test]
-#[should_panic(expected = "Unsupported alignment")]
-fn test_unsupported_alignment_val() {
-    let mut alloc = Arena::default();
-    let arena = alloc.fresh_arena(1);
-
-    let _ = arena.alloc_val(Test);
 }
 
 #[test]
@@ -517,7 +496,7 @@ fn test_chunk_consolidation() {
     let mut alloc = Arena::default();
 
     // First arena: allocate vectors to force multiple chunks
-    let arena = alloc.fresh_arena(0);
+    let arena = alloc.fresh_arena(1);
 
     let mut original_addresses_u32 = Vec::new();
     let mut original_addresses_u64 = Vec::new();
@@ -537,7 +516,7 @@ fn test_chunk_consolidation() {
     }
 
     // First consolidation of the chunks
-    let arena = alloc.fresh_arena(1);
+    let arena = alloc.fresh_arena(2);
 
     let mut first_addresses_u32 = Vec::new();
     let mut first_addresses_u64 = Vec::new();
@@ -566,7 +545,7 @@ fn test_chunk_consolidation() {
     }
 
     // Second consolidation
-    let arena = alloc.fresh_arena(2);
+    let arena = alloc.fresh_arena(3);
 
     // Verify addresses remain stable after second consolidation
     for i in 0..100 {
@@ -758,12 +737,28 @@ fn test_sink() {
     assert_eq!(slice, &expected)
 }
 
+#[test]
+fn test_string_vec_layout_comp() {
+    assert_eq!(size_of::<String>(), size_of::<Vec<u8>>());
+    assert_eq!(align_of::<String>(), align_of::<Vec<u8>>());
+    let mut string = String::with_capacity(69);
+    let mut vec = Vec::with_capacity(69);
+    string.push_str("Hello, world!");
+    vec.extend_from_slice(b"Hello, world!");
+    let string_bytes: [usize; 3] = unsafe { transmute(string) };
+    let vec_bytes: [usize; 3] = unsafe { transmute(vec) };
+    let mut same_value = 0;
+    same_value += (string_bytes[0] == vec_bytes[0]) as u8;
+    same_value += (string_bytes[1] == vec_bytes[1]) as u8;
+    same_value += (string_bytes[2] == vec_bytes[2]) as u8;
+    assert_eq!(same_value, 2); // The len and capacity should match, the ptr shouldn't.
+}
+
 // Expect: error[E0499]: cannot borrow `alloc` as mutable more than once at a time
 /// Test: getting memory usage invalidates the arena
 /// ```compile_fail
-/// use arena::ArenaContainer;
-/// let mut alloc = ArenaContainer::default();
-/// let arena = alloc.new_arena(1);
+/// let mut alloc = arena::Arena::default();
+/// let arena = alloc.fresh_arena(1);
 /// alloc.memory_usage();
 /// let vec = arena.alloc_vec::<u32>();
 /// vec.push(42);
@@ -773,9 +768,8 @@ pub struct _CompileFailMemoryUsageInvalidatesArena1;
 // Expect: error[E0499]: cannot borrow `alloc` as mutable more than once at a time
 /// Test: getting memory usage invalidates the arena
 /// ```compile_fail
-/// use arena::ArenaContainer;
-/// let mut alloc = ArenaContainer::default();
-/// let arena = alloc.new_arena(0);
+/// let mut alloc = arena::Arena::default();
+/// let arena = alloc.fresh_arena(0);
 /// let vec = arena.alloc_vec::<u32>();
 /// alloc.memory_usage();
 /// vec.push(42);
@@ -785,10 +779,9 @@ pub struct _CompileFailMemoryUsageInvalidatesArena2;
 // Expect: error[E0597]: `alloc` does not live long enough
 /// Test: allocated things can't outlive the allocator
 /// ```compile_fail
-/// use arena::ArenaContainer;
 /// let outlived_vec = {
-///     let mut alloc = ArenaContainer::default();
-///     let mut arena = alloc.new_arena(1);
+///     let mut alloc = arena::Arena::default();
+///     let mut arena = alloc.fresh_arena(1);
 ///
 ///     let vec = arena.alloc_vec::<u32>();
 ///     vec.push(42);
@@ -800,35 +793,52 @@ pub struct _CompileFailAllocationsCantOutliveArena;
 // Expect: error[E0499]: cannot borrow `alloc` as mutable more than once at a time
 /// Test: getting a new arena makes the old one unusable
 /// ```compile_fail
-/// use arena::ArenaContainer;
-/// let mut alloc = ArenaContainer::default();
-/// let mut arena = alloc.new_arena(1);
+/// let mut alloc = arena::Arena::default();
+/// let mut arena = alloc.fresh_arena(1);
 ///
 /// let vec = arena.alloc_vec::<u32>();
 /// vec.push(42);
 ///
-/// let mut arena = alloc.new_arena(2);
+/// let mut arena = alloc.fresh_arena(2);
 /// vec.push(43);
 /// ```
 pub struct _CompileFailNewArenaInvalidatesOldArena;
 
-// Expect: error[E0080]: evaluation of `arena::Arena::<'_>::alloc_val::<std::string::String>::{constant#0}` failed
+// Expect: evaluation of `arena::ArenaGuard::<'_>::check_drop_static::<std::string::String>::{constant#0}` failed
 /// Test: attempt allocing a value with Drop implementation
 /// ```compile_fail
-/// use arena::ArenaContainer;
-/// let mut alloc = ArenaContainer::default();
-/// let mut arena = alloc.new_arena(1);
+/// let mut alloc = arena::Arena::default();
+/// let mut arena = alloc.fresh_arena(1);
 /// let _ = arena.alloc_val(String::from("Hello, World!"));
 /// ```
 pub struct _CompileFailForbidDropOnVal;
 
-// Expect: error[E0080]: evaluation of `arena::Arena::<'_>::alloc_vec::<std::string::String>::{constant#0}` failed
+// Expect: evaluation of `arena::ArenaGuard::<'_>::check_drop_static::<std::string::String>::{constant#0}` failed
 /// Test: attempt allocing a vec with Drop implementation
 /// ```compile_fail
-/// use arena::ArenaContainer;
-/// let mut alloc = ArenaContainer::default();
-/// let mut arena = alloc.new_arena(1);
+/// let mut alloc = arena::Arena::default();
+/// let mut arena = alloc.fresh_arena(1);
 /// let mut strings = arena.alloc_vec();
 /// strings.push(String::from("Hello, World!"));
 /// ```
 pub struct _CompileFailForbidDropOnVec;
+
+// Expect: error[E0080]: evaluation of `arena::ArenaGuard::<'_>::check_alignment_static::<main::_doctest_main_libs_arena_src_tests_rs_819_0::TestAlign32>::{constant#0}` failed
+/// ```compile_fail
+/// #[repr(align(32))]
+/// struct TestAlign32;
+/// let mut alloc = arena::Arena::default();
+/// let arena = alloc.fresh_arena(1);
+/// let _ = arena.alloc_val(TestAlign32);
+/// ```
+pub struct _CompileFailUnsupportedValAlign;
+
+// Expect: error[E0080]: evaluation of `arena::ArenaGuard::<'_>::check_alignment_static::<main::_doctest_main_libs_arena_src_tests_rs_819_0::TestAlign32>::{constant#0}` failed
+/// ```compile_fail
+/// #[repr(align(32))]
+/// struct TestAlign32;
+/// let mut alloc = arena::Arena::default();
+/// let arena = alloc.fresh_arena(1);
+/// let _ = arena.alloc_vec::<TestAlign32>();
+/// ```
+pub struct _CompileFailUnsupportedVecAlign;

@@ -86,7 +86,7 @@ impl<'a> Drop for ArenaGuard<'a> {
 impl<'a> ArenaGuard<'a> {
     pub(crate) fn new() -> Self {
         ArenaGuard {
-            alloc_seq: 1,
+            alloc_seq: 0,
             vec_align_1: vec::ByAlign::new(),
             vec_align_2: vec::ByAlign::new(),
             vec_align_4: vec::ByAlign::new(),
@@ -158,7 +158,7 @@ impl<'a> ArenaGuard<'a> {
             4 => &mut self.vec_align_4,
             8 => &mut self.vec_align_8,
             16 => &mut self.vec_align_16,
-            // Panics: API misuse; caller's responsibility
+            // UNREACHABLE: always checked with `check_alignment_static`
             _ => panic!("UNREACHABLE: Unsupported alignment"),
         }
     }
@@ -170,29 +170,44 @@ impl<'a> ArenaGuard<'a> {
             4 => &mut self.val_align_4,
             8 => &mut self.val_align_8,
             16 => &mut self.val_align_16,
-            // Panics: API misuse; caller's responsibility
+            // UNREACHABLE: always checked with `check_alignment_static`
             _ => panic!("UNREACHABLE: Unsupported alignment"),
         }
     }
 
-    const fn check_alignment(align: usize) {
-        assert!(align.is_power_of_two());
-        assert!(align >= 1);
-        assert!(align <= 16);
+    const fn check_alignment_static<T>() {
+        // Panics: Static assert, so no runtime panics are possible
+        const {
+            let align = align_of::<T>();
+            assert!(align.is_power_of_two(), "Align must be power of two!");
+            assert!(align >= 1, "Align must be at least 1");
+            assert!(align <= 16, "Align must be at most 16");
+        };
+    }
+
+    const fn check_drop_static<T>() {
+        // Panics: Static assert, so no runtime panics are possible
+        const { assert!(!needs_drop::<T>(), "Can't allocate type with Drop!") };
+    }
+
+    const fn check_string_vec_layout_static() {
+        // Panics: Static assert, so no runtime panics are possible
+        // The field offset layout is not possible to check with
+        // compile-time assertions, but it is additionally checked in tests
+        const {
+            assert!(size_of::<String>() == size_of::<Vec<u8>>());
+            assert!(align_of::<String>() == align_of::<Vec<u8>>())
+        }
     }
 
     pub fn alloc_vec<T>(&mut self) -> &'a mut Vec<T> {
-        // Panics: Static assert, so no runtime panics are possible
-        const { assert!(!needs_drop::<T>()) };
+        Self::check_drop_static::<T>();
         self.alloc_vec_ignore_drop()
     }
 
     pub fn alloc_string(&mut self, str: &str) -> &'a mut String {
-        // Panics: Static assert, so no runtime panics are possible
-        const { assert!(size_of::<String>() == size_of::<Vec<u8>>()) }
-        const { assert!(align_of::<String>() == align_of::<Vec<u8>>()) }
-
         let vec: &mut Vec<u8> = self.alloc_vec_ignore_drop();
+        Self::check_string_vec_layout_static();
         // Safety: String is defined as `pub struct String { vec: Vec<u8> }`
         // We ensure statically that the size and alignment of String and
         // Vec<u8> are the same. The allocated buffer also shares the
@@ -205,8 +220,7 @@ impl<'a> ArenaGuard<'a> {
     }
 
     pub fn alloc_slice<T>(&mut self, slice: &[T]) -> &'a mut [T] {
-        // Panics: Static assert, so no runtime panics are possible
-        const { assert!(!needs_drop::<T>()) };
+        Self::check_drop_static::<T>();
         self.alloc_slice_ignore_drop(slice)
     }
 
@@ -218,26 +232,22 @@ impl<'a> ArenaGuard<'a> {
     }
 
     pub fn alloc_val<T>(&mut self, val: T) -> &'a mut T {
-        // Panics: Static assert, so no runtime panics are possible
-        const { assert!(!needs_drop::<T>()) };
+        Self::check_drop_static::<T>();
         self.alloc_val_ignore_drop(val)
     }
 
     pub fn alloc_iter<T>(&mut self, iter: impl ExactSizeIterator<Item = T>) -> &'a mut [T] {
-        // Panics: Static assert, so no runtime panics are possible
-        const { assert!(!needs_drop::<T>()) };
+        Self::check_drop_static::<T>();
         self.alloc_iter_ignore_drop(iter)
     }
 
     pub fn alloc_sink<'s, T>(&'s mut self) -> Sink<'s, 'a, T> {
-        // Panics: Static assert, so no runtime panics are possible
-        const { assert!(!needs_drop::<T>()) };
+        Self::check_drop_static::<T>();
         self.alloc_sink_ignore_drop()
     }
 
     pub fn alloc_sink_ignore_drop<'s, T>(&'s mut self) -> Sink<'s, 'a, T> {
-        // Panics: Static assert, so no runtime panics are possible
-        const { Self::check_alignment(align_of::<T>()) }
+        Self::check_alignment_static::<T>();
         let by_align = self.get_val_align(align_of::<T>());
         Sink {
             len: 0,
@@ -250,8 +260,7 @@ impl<'a> ArenaGuard<'a> {
         &mut self,
         iter: impl ExactSizeIterator<Item = T>,
     ) -> &'a mut [T] {
-        // Panics: Static assert, so no runtime panics are possible
-        const { Self::check_alignment(align_of::<T>()) }
+        Self::check_alignment_static::<T>();
         let item_byte_size = size_of::<T>();
         let by_align = self.get_val_align(align_of::<T>());
         // We can't trust this length, so measures for both it being too short
@@ -315,8 +324,7 @@ impl<'a> ArenaGuard<'a> {
     }
 
     pub fn alloc_vec_ignore_drop<T>(&mut self) -> &'a mut Vec<T> {
-        // Panics: Static assert, so no runtime panics are possible
-        const { Self::check_alignment(align_of::<T>()) }
+        Self::check_alignment_static::<T>();
         let n_size = const { size_of::<T>() / align_of::<T>() };
         let seq = self.alloc_seq;
         let by_align = self.get_vec_align(align_of::<T>());
@@ -342,8 +350,7 @@ impl<'a> ArenaGuard<'a> {
     }
 
     pub fn alloc_slice_ignore_drop<T>(&mut self, slice: &[T]) -> &'a mut [T] {
-        // Panics: Static assert, so no runtime panics are possible
-        const { Self::check_alignment(align_of::<T>()) }
+        Self::check_alignment_static::<T>();
         let byte_size = size_of_val(slice);
         let by_align = self.get_val_align(align_of::<T>());
 
@@ -368,8 +375,7 @@ impl<'a> ArenaGuard<'a> {
     }
 
     pub fn alloc_val_ignore_drop<T>(&mut self, val: T) -> &'a mut T {
-        // Panics: Static assert, so no runtime panics are possible
-        const { Self::check_alignment(align_of::<T>()) }
+        Self::check_alignment_static::<T>();
         let byte_size = size_of::<T>();
         let by_align = self.get_val_align(align_of::<T>());
 
