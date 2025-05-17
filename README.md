@@ -2,9 +2,9 @@
 
 **NOTE:** This is a work in progress. I haven't released even the first version yet! Proceed with caution!
 
-Bang is a 2D game engine, written in Rust, from scratch
-(currently no dependencies other than Rust stdlib and the OS platform APIs,
-and the only available runtime is macOS / Metal).
+Bang is a 2D game engine, written in Rust, from scratch.
+(Currently no external dependencies other than Rust stdlib and the OS platform APIs,
+and the only available runtime is macOS / Metal. Other runtimes are planned.)
 
 It's meant for quick prototyping simple games, for game jams and small projects.
 
@@ -14,8 +14,8 @@ The values I try to cherish as I'm developing Bang (in order):
 2. Easy to start up, quick to iterate, quick to test out game ideas; that's the main purpose of the project.
 3. Robust and portable; if the game works on the developer's computer, it should trivially work on
    every supported platform. Showing off your creations is the next best thing to making them, right?
-4. Performant; because why not. Software should be performant. I HATE slow programs and I hate tools
-   that seem polished but turn out to be turds of slowness at the moment you try to do anything
+4. Performant; because why not. Software should be performant. I hate slow programs and I hate tools
+   that seem polished but turn out to be turds of glitchy slowness at the moment you try to do anything
    serious with them.
 
 These values are my north star. They guide my decisions and help me prioritize features and improvements.
@@ -28,26 +28,27 @@ The concrete design they lead me to, isn't clear yet, however. Currently, my des
   than whipping together a bunch of libraries with a lot of fluff. (Principaly value #1, but by the expected outcomes,
   also #2, #3 and #4)
 - Focus on 2D. The engine is meant for simple games, created in swift creative bursts. 3D just seems like
-  too much effort for the cost. Also, while I enjoy modern games, I'm not super interested in developing with myriads
-  of people. Just coming by with all the 3D assets is too much for a quick game.
+  too much effort for the cost. Also, while I enjoy modern games, developing those for hobby sounds...
+  almost impossible. Just coming by with all the 3D assets is too much for a quick game.
   I love indies for the creativity and the simplicity! (Values #1 and #2)
-- To use Rust. I think Rust is the only viable option that aligns with my goals in year 2025. Zig almost makes it,
-  but I'm too unfamiliar with it (Value #1), and it apparently changes too often as it isn't 1.0 yet (Values #1, #3).
-  Languages with heavy runtimes or GC are out of question. (Value #4) C and C++ are out of question. (Value #1)
-- To separate logic and rendering loops. I want the fixed-time logic loop to be the default. Rendering rates
-  of the gamer's screen be damned! I want to be free of considerations like: "does this feel totally different
+- To use Rust. I think Rust is the only viable programming language that aligns with my goals in year 2025.
+  Zig almost makes it, but I'm too unfamiliar with it (Value #1), and it apparently changes too often as it
+  isn't 1.0 yet (Values #1, #3). Languages with heavy runtimes or GC are out of question. (Values #3 and #4)
+  C and C++ are out of question. (Values #1 and #3)
+- To separate logic and rendering loops. I want the fixed-time logic loop to be the default. Frame rates
+  of the gamers' screens be damned! I want to be free of considerations like: "does this feel totally different
   for people with 30fps, 60fps and 120fps", and I want to free the developer of the game from having to think
   those kinds of details. Delta-time shall be a thing, but let it be a constant. (Value #3, but in a way, also #2)
 - To use fixed-point arithmetic for in-game-world coordinates and calculations. This might feel weird from the
-  value #4 perspective, as floating point arithmetic is the standard, but... because value #3 is before #4,
-  I want to use fixed-point arithmetic in calculations that might affect the game world simulation. It's not
-  just hardware issue, I want to respect the "invariant of where the event happens". If you have coordinates
-  in a game world, and you shift them by even a unit value, depending on the original coordinates, the
-  result may change by an order of magnitude. Floating point arithmetic is fundamentally unable to
-  represent apparently fine calculations in the same way, so I'm eschewing it.
+  value #4 perspective, as floating point arithmetic is fast and the standard in games, but...
+  because value #3 is before #4, I want to use the option that is the deterministic and more correct.
+  Specifically, I want to respect the "translational symmetry" of the game world; with floating points,
+  a result of a simulation is dependent on _where_ the simulation happens within the game world. I don't like that.
 - To provide an easy, seeded, deterministic PRNG, instead of users having to reach for platform randomness.
-  Seems like a no-brainer. (Value #2 and #3)
-- To provide very performant but easy-to-use allocators. (Value #2 and #4)
+  Seems like a no-brainer. (Values #2 and #3)
+- To provide very performant and easy-to-use allocators, both for frame lifetimes and managed, dynamic lifetimes.
+  Managed means that we are going to use IDs instead of pointers. That removes a big footgun, and because
+  deallocating is going to to be manual and deterministic, lifetimes are also clear. (Values #2, #3 and #4)
 
 ## TODO
 
